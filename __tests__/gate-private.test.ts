@@ -293,10 +293,10 @@ describe('runPrivate', () => {
     })
   })
 
-  it('dedup-checks keeps only the latest cross-suite duplicate → success', async () => {
+  it('dedup-checks drops a superseded cross-suite cancellation → success', async () => {
     // Exercises the full wiring: (a) an app-scoped dedup rule with no
     // `workflow` field still triggers workflow-path pre-resolution (the
-    // lookup assertion below), and (b) dedupToLatest drops the superseded
+    // lookup assertion below), and (b) dropSupersededCancellations drops the superseded
     // cancelled run before aggregation, flipping the verdict to success.
     const workflowLookups: number[] = []
     useCancelInProgressDuplicate(workflowLookups)

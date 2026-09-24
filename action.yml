@@ -27,7 +27,7 @@ inputs:
     required: false
     default: '[]'
   dedup-checks:
-    description: 'JSONC array of rules (same schema as ignore-checks) selecting check_runs to deduplicate to the latest run. Every rule must set `workflow` or `app` — `name` alone is rejected and only narrows a scoped rule. Matched runs are grouped per (app, workflow file, check name) and only the newest run (highest check_run id) is evaluated — superseded duplicates from older check_suites on the same SHA are dropped. Use for workflows with `concurrency: cancel-in-progress: true`, whose cancelled runs would otherwise fail the gate. Requires the workflow''s token to have `actions: read` — without that scope GitHub Actions runs are silently never deduplicated. Example: ''[{"workflow":"ci.yaml"}]''.'
+    description: 'JSONC array of rules (same schema as ignore-checks) selecting check_runs whose superseded cancellations are dropped. Every rule must set `workflow` or `app` — `name` alone is rejected and only narrows a scoped rule. Matched runs are grouped per (app, workflow file, check name); a `cancelled` run is dropped when the same group has a newer run (higher check_run id) on the same SHA. Runs with any other conclusion, and the newest run of each group, are always evaluated. Use for workflows with `concurrency: cancel-in-progress: true`, whose cancelled runs would otherwise fail the gate. Requires the workflow''s token to have `actions: read` — without that scope GitHub Actions runs are silently never deduplicated. Example: ''[{"workflow":"ci.yaml"}]''.'
     required: false
     default: '[]'
   token:

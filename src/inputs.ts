@@ -125,17 +125,16 @@ export const parseRuleList = (raw: string, inputName: string): CheckRule[] => {
 }
 
 // `dedup-checks` rules must be scoped by `workflow` or `app` — stricter
-// than `ignore-checks`. Dedup drops runs, and a bare `name` rule would
-// silently enroll every workflow and app whose job happens to share the
-// name into latest-run-wins, which can discard a genuine failure (e.g. a
-// workflow triggered by both push and pull_request where only the older
-// run fails). `name` is still allowed to narrow a scoped rule.
+// than `ignore-checks`. Dedup drops runs, so a rule should name whose
+// runs it may drop; a bare `name` rule would silently enroll every
+// workflow and app whose job happens to share the name. `name` is still
+// allowed to narrow a scoped rule.
 export const parseDedupChecks = (raw: string): CheckRule[] => {
   const rules = parseRuleList(raw, 'dedup-checks')
   for (const [index, rule] of rules.entries()) {
     if (rule.workflow === undefined && rule.app === undefined) {
       throw new Error(
-        `input \`dedup-checks\`: entry [${index}] must set \`workflow\` or \`app\` — \`name\` alone would opt every workflow/app with that job name into latest-run-wins`
+        `input \`dedup-checks\`: entry [${index}] must set \`workflow\` or \`app\` — \`name\` alone would opt every workflow/app with that job name into dedup`
       )
     }
   }

@@ -148,11 +148,11 @@ describe('runPublic', () => {
     expect(setFailedSpy).not.toHaveBeenCalled()
   })
 
-  it('dedup-checks keeps only the latest cross-suite duplicate → no setFailed', async () => {
+  it('dedup-checks drops a superseded cross-suite cancellation → no setFailed', async () => {
     // Mirror of the gate-private dedup wiring test: same workflow file,
     // two suites on one SHA, older `build` run cancelled and the newer
     // one green. Without the rule the cancellation would aggregate to
-    // failure; with it, only the latest run is evaluated.
+    // failure; with it, the superseded cancellation is dropped.
     const setFailedSpy = vi
       .spyOn(core, 'setFailed')
       .mockImplementation(() => {})

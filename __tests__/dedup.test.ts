@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dedupToLatest } from '../src/dedup.js'
+import { dropSupersededCancellations } from '../src/dedup.js'
 import { aggregate } from '../src/aggregator.js'
 import type { AggregatedCheckRun } from '../src/filter.js'
 
@@ -28,38 +28,111 @@ const make = (o: {
     o.workflowPath === undefined ? '.github/workflows/ci.yaml' : o.workflowPath
 })
 
-describe('dedupToLatest', () => {
+describe('dropSupersededCancellations', () => {
   it('is a no-op when no rules are configured', () => {
     const runs = [
       make({ id: 1, name: 'build', conclusion: 'cancelled' }),
       make({ id: 2, name: 'build' })
     ]
-    const result = dedupToLatest(runs, [])
+    const result = dropSupersededCancellations(runs, [])
     expect(result.kept).toBe(runs)
     expect(result.dropped).toEqual([])
   })
 
-  it('keeps only the latest run of a matched cross-suite duplicate', () => {
+  it('drops a cancelled run superseded by a newer cross-suite duplicate', () => {
     // The motivating cancel-in-progress shape: same workflow, same job
     // name, two suites on one SHA — the older run cancelled, the newer
     // one green.
     const cancelled = make({ id: 10, name: 'build', conclusion: 'cancelled' })
     const fresh = make({ id: 20, name: 'build' })
-    const result = dedupToLatest([cancelled, fresh], [{ workflow: 'ci.yaml' }])
+    const result = dropSupersededCancellations(
+      [cancelled, fresh],
+      [{ workflow: 'ci.yaml' }]
+    )
     expect(result.kept).toEqual([fresh])
     expect(result.dropped).toEqual([{ run: cancelled, supersededBy: fresh }])
   })
 
-  it('keeps the max id out of a three-run group', () => {
+  it('drops only the cancelled runs out of a three-run group', () => {
     const runs = [
       make({ id: 5, name: 'build', conclusion: 'cancelled' }),
       make({ id: 9, name: 'build' }),
       make({ id: 7, name: 'build', conclusion: 'failure' })
     ]
-    const result = dedupToLatest(runs, [{ workflow: 'ci.yaml' }])
-    expect(result.kept.map((r) => r.id)).toEqual([9])
-    expect(result.dropped.map((d) => d.run.id)).toEqual([5, 7])
-    expect(result.dropped.map((d) => d.supersededBy.id)).toEqual([9, 9])
+    const result = dropSupersededCancellations(runs, [{ workflow: 'ci.yaml' }])
+    expect(result.kept.map((r) => r.id)).toEqual([9, 7])
+    expect(result.dropped.map((d) => d.run.id)).toEqual([5])
+    expect(result.dropped.map((d) => d.supersededBy.id)).toEqual([9])
+    expect(aggregate(result.kept).state).toBe('failure')
+  })
+
+  it('keeps an older failure when a newer run skipped the job', () => {
+    // A later event (e.g. `labeled`) re-runs the workflow and the job's
+    // `if:` skips it. `skipped` is green, so dropping the older failure
+    // would let the gate pass on a failure nobody fixed.
+    const failed = make({ id: 1, name: 'test', conclusion: 'failure' })
+    const skipped = make({ id: 2, name: 'test', conclusion: 'skipped' })
+    const result = dropSupersededCancellations(
+      [failed, skipped],
+      [{ app: 'github-actions' }]
+    )
+    expect(result.kept).toEqual([failed, skipped])
+    expect(result.dropped).toEqual([])
+    expect(aggregate(result.kept).state).toBe('failure')
+  })
+
+  it.each(['failure', 'timed_out', 'action_required'])(
+    'keeps an older %s run even when a newer run succeeded',
+    (conclusion) => {
+      const older = make({ id: 1, name: 'test', conclusion })
+      const newer = make({ id: 2, name: 'test' })
+      const result = dropSupersededCancellations(
+        [older, newer],
+        [{ app: 'github-actions' }]
+      )
+      expect(result.kept).toEqual([older, newer])
+      expect(aggregate(result.kept).state).toBe('failure')
+    }
+  )
+
+  it('keeps the newest run when it is itself cancelled', () => {
+    const older = make({ id: 1, name: 'build', conclusion: 'cancelled' })
+    const newer = make({ id: 2, name: 'build', conclusion: 'cancelled' })
+    const result = dropSupersededCancellations(
+      [older, newer],
+      [{ workflow: 'ci.yaml' }]
+    )
+    expect(result.kept).toEqual([newer])
+    expect(result.dropped).toEqual([{ run: older, supersededBy: newer }])
+    expect(aggregate(result.kept).state).toBe('failure')
+  })
+
+  it('keeps a lone cancelled run that nothing superseded', () => {
+    const cancelled = make({ id: 1, name: 'build', conclusion: 'cancelled' })
+    const result = dropSupersededCancellations(
+      [cancelled],
+      [{ workflow: 'ci.yaml' }]
+    )
+    expect(result.kept).toEqual([cancelled])
+    expect(result.dropped).toEqual([])
+  })
+
+  it('keeps a re-run of an older suite that failed after a newer suite succeeded', () => {
+    // Re-running the older suite creates a check_run with the highest id.
+    // Its failure is not a cancellation, so it stays and the gate is red.
+    const newerSuiteRun = make({ id: 10, name: 'build', suite: 200 })
+    const rerunOfOlderSuite = make({
+      id: 20,
+      name: 'build',
+      suite: 100,
+      conclusion: 'failure'
+    })
+    const result = dropSupersededCancellations(
+      [newerSuiteRun, rerunOfOlderSuite],
+      [{ workflow: 'ci.yaml' }]
+    )
+    expect(result.kept).toEqual([newerSuiteRun, rerunOfOlderSuite])
+    expect(aggregate(result.kept).state).toBe('failure')
   })
 
   it('does not collapse same-named runs from different workflows', () => {
@@ -77,7 +150,10 @@ describe('dedupToLatest', () => {
       conclusion: 'failure',
       workflowPath: '.github/workflows/ci-python.yaml'
     })
-    const result = dedupToLatest([goLint, pyLint], [{ app: 'github-actions' }])
+    const result = dropSupersededCancellations(
+      [goLint, pyLint],
+      [{ app: 'github-actions' }]
+    )
     expect(result.kept).toEqual([goLint, pyLint])
     expect(result.dropped).toEqual([])
   })
@@ -87,7 +163,9 @@ describe('dedupToLatest', () => {
       make({ id: 1, name: 'build', conclusion: 'cancelled' }),
       make({ id: 2, name: 'build' })
     ]
-    const result = dedupToLatest(runs, [{ workflow: 'nightly.yaml' }])
+    const result = dropSupersededCancellations(runs, [
+      { workflow: 'nightly.yaml' }
+    ])
     expect(result.kept).toEqual(runs)
     expect(result.dropped).toEqual([])
   })
@@ -106,7 +184,7 @@ describe('dedupToLatest', () => {
       name: 'test',
       workflowPath: '.github/workflows/nightly.yaml'
     })
-    const result = dedupToLatest(
+    const result = dropSupersededCancellations(
       [ciOld, ciNew, nightlyOld, nightlyNew],
       [{ workflow: 'ci.yaml' }]
     )
@@ -130,7 +208,10 @@ describe('dedupToLatest', () => {
       app: 'xcode-cloud',
       workflowPath: null
     })
-    const result = dedupToLatest([old, fresh], [{ app: 'xcode-cloud' }])
+    const result = dropSupersededCancellations(
+      [old, fresh],
+      [{ app: 'xcode-cloud' }]
+    )
     expect(result.kept).toEqual([fresh])
     expect(result.dropped).toEqual([{ run: old, supersededBy: fresh }])
   })
@@ -148,7 +229,9 @@ describe('dedupToLatest', () => {
       }),
       make({ id: 2, name: 'build', workflowPath: null })
     ]
-    const result = dedupToLatest(runs, [{ app: 'github-actions' }])
+    const result = dropSupersededCancellations(runs, [
+      { app: 'github-actions' }
+    ])
     expect(result.kept).toEqual(runs)
     expect(result.dropped).toEqual([])
   })
@@ -158,7 +241,10 @@ describe('dedupToLatest', () => {
     const fresh = make({ id: 2, name: 'build' })
     delete old.workflow_path
     delete fresh.workflow_path
-    const result = dedupToLatest([old, fresh], [{ app: 'github-actions' }])
+    const result = dropSupersededCancellations(
+      [old, fresh],
+      [{ app: 'github-actions' }]
+    )
     expect(result.kept).toEqual([old, fresh])
     expect(result.dropped).toEqual([])
   })
@@ -175,7 +261,7 @@ describe('dedupToLatest', () => {
       status: 'in_progress',
       conclusion: null
     })
-    const result = dedupToLatest(
+    const result = dropSupersededCancellations(
       [cancelled, running],
       [{ workflow: 'ci.yaml' }]
     )
@@ -188,7 +274,7 @@ describe('dedupToLatest', () => {
     const oldBuild = make({ id: 2, name: 'build', conclusion: 'cancelled' })
     const b = make({ id: 3, name: 'another' })
     const newBuild = make({ id: 4, name: 'build' })
-    const result = dedupToLatest(
+    const result = dropSupersededCancellations(
       [a, oldBuild, b, newBuild],
       [{ app: 'github-actions', name: 'build' }]
     )
@@ -213,7 +299,7 @@ describe('dedupToLatest', () => {
     })
     const actionsOld = make({ id: 3, name: 'Build', conclusion: 'cancelled' })
     const actionsNew = make({ id: 4, name: 'Build' })
-    const result = dedupToLatest(
+    const result = dropSupersededCancellations(
       [xcodeOld, xcodeNew, actionsOld, actionsNew],
       [{ app: 'xcode-cloud', name: 'Build' }]
     )

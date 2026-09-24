@@ -1,14 +1,21 @@
 import { matchesAnyRule, type AggregatedCheckRun } from './filter.js'
 import type { CheckRule } from './inputs.js'
 
-// Deduplicates check_runs to the latest run per check, for runs matching
-// the `dedup-checks` rules. Workflows using `cancel-in-progress: true`
-// can leave a cancelled check_run on the head SHA next to a fresh
-// same-named run in a different check_suite (e.g. a workflow triggered
-// by both `push` and `pull_request`). The Checks API's `filter=latest`
-// default only collapses duplicates within one suite; this module covers
-// the cross-suite case, which would otherwise turn the aggregate red on
-// a superseded cancellation.
+// Drops cancelled check_runs that a newer run of the same check has
+// superseded, for runs matching the `dedup-checks` rules. Workflows using
+// `concurrency: cancel-in-progress: true` can leave a cancelled check_run
+// on the head SHA next to a fresh same-named run in a different
+// check_suite (e.g. two `synchronize` events delivered for one push, a
+// `labeled` event, or a re-delivered webhook). The Checks API's
+// `filter=latest` default only collapses duplicates within one suite;
+// this module covers the cross-suite case, which would otherwise turn the
+// aggregate red on a superseded cancellation.
+//
+// Only `cancelled` runs are ever dropped. A superseded run that failed,
+// timed out, or needs action stays in the aggregate, because a newer run
+// of the same job does not prove the older failure away — the newer run
+// may have been started by a different activity type and skipped the job
+// via `if:` (a `skipped` conclusion counts as green).
 //
 // Pure function — no I/O. Logging of dropped runs happens in the gates.
 
@@ -18,7 +25,7 @@ export type DedupDrop = {
 }
 
 export type DedupResult = {
-  // Input order preserved: winners stay at their original positions.
+  // Input order preserved.
   kept: AggregatedCheckRun[]
   dropped: DedupDrop[]
 }
@@ -27,7 +34,7 @@ export type DedupResult = {
 // path is part of the key because the same job name can legitimately
 // exist in several workflows on one SHA (the monorepo pattern documented
 // in README "Discovering what to ignore") — grouping by name alone would
-// collapse those distinct checks and could discard a genuine failure.
+// let one workflow's run supersede another workflow's cancellation.
 // JSON.stringify of a tuple is collision-free regardless of what
 // characters appear in slugs, paths, or names.
 const groupKey = (run: AggregatedCheckRun): string =>
@@ -53,40 +60,42 @@ const isPoolEligible = (
   return true
 }
 
-// Keeps the run with the highest check_run id per group. GitHub's own
+// Finds the newest run per group by check_run id. GitHub's own
 // required-check evaluation resolves duplicate-named check_runs the same
 // way (see docs/lessons/2026-05-06-check-run-pending-state-mapping.md
 // §2–§3): ids are assigned monotonically at creation, and re-runs create
 // new rows with higher ids, so max-id is "most recently created" even
-// when an older suite is re-run after a newer one started.
-export const dedupToLatest = (
+// when an older suite is re-run after a newer one started. A cancelled
+// run is dropped only when that newest run is a different, newer run;
+// the newest run itself is always kept, whatever its verdict.
+export const dropSupersededCancellations = (
   runs: AggregatedCheckRun[],
   rules: CheckRule[]
 ): DedupResult => {
   if (rules.length === 0) return { kept: runs, dropped: [] }
 
-  const winners = new Map<string, AggregatedCheckRun>()
+  const newest = new Map<string, AggregatedCheckRun>()
   for (const run of runs) {
     if (!isPoolEligible(run, rules)) continue
     const key = groupKey(run)
-    const current = winners.get(key)
+    const current = newest.get(key)
     if (current === undefined || run.id > current.id) {
-      winners.set(key, run)
+      newest.set(key, run)
     }
   }
 
   const kept: AggregatedCheckRun[] = []
   const dropped: DedupDrop[] = []
   for (const run of runs) {
-    if (!isPoolEligible(run, rules)) {
+    if (run.conclusion !== 'cancelled' || !isPoolEligible(run, rules)) {
       kept.push(run)
       continue
     }
-    const winner = winners.get(groupKey(run))
-    if (winner === undefined || winner === run) {
+    const latest = newest.get(groupKey(run))
+    if (latest === undefined || latest === run) {
       kept.push(run)
     } else {
-      dropped.push({ run, supersededBy: winner })
+      dropped.push({ run, supersededBy: latest })
     }
   }
   return { kept, dropped }

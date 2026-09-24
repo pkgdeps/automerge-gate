@@ -12,7 +12,7 @@ import {
   parseCurrentWorkflowPath,
   resolveWorkflowPaths
 } from './self-exclusion.js'
-import { dedupToLatest, type DedupDrop } from './dedup.js'
+import { dropSupersededCancellations, type DedupDrop } from './dedup.js'
 import { pollUntilComplete } from './polling.js'
 import {
   formatCheckResults,
@@ -63,7 +63,10 @@ export const runPublic = async (
         currentWorkflowPath,
         lookupWorkflowPath
       )
-      const { kept, dropped } = dedupToLatest(afterSelf, inputs.dedupChecks)
+      const { kept, dropped } = dropSupersededCancellations(
+        afterSelf,
+        inputs.dedupChecks
+      )
       lastDropped = dropped
       lastEvaluated = kept.length
       lastCompleted = kept.filter((r) => r.status === 'completed').length

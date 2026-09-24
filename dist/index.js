@@ -24857,7 +24857,7 @@ var parseDedupChecks = (raw) => {
   for (const [index, rule] of rules.entries()) {
     if (rule.workflow === void 0 && rule.app === void 0) {
       throw new Error(
-        `input \`dedup-checks\`: entry [${index}] must set \`workflow\` or \`app\` \u2014 \`name\` alone would opt every workflow/app with that job name into latest-run-wins`
+        `input \`dedup-checks\`: entry [${index}] must set \`workflow\` or \`app\` \u2014 \`name\` alone would opt every workflow/app with that job name into dedup`
       );
     }
   }
@@ -25048,29 +25048,29 @@ var isPoolEligible = (run2, rules) => {
   }
   return true;
 };
-var dedupToLatest = (runs, rules) => {
+var dropSupersededCancellations = (runs, rules) => {
   if (rules.length === 0) return { kept: runs, dropped: [] };
-  const winners = /* @__PURE__ */ new Map();
+  const newest = /* @__PURE__ */ new Map();
   for (const run2 of runs) {
     if (!isPoolEligible(run2, rules)) continue;
     const key = groupKey(run2);
-    const current = winners.get(key);
+    const current = newest.get(key);
     if (current === void 0 || run2.id > current.id) {
-      winners.set(key, run2);
+      newest.set(key, run2);
     }
   }
   const kept = [];
   const dropped = [];
   for (const run2 of runs) {
-    if (!isPoolEligible(run2, rules)) {
+    if (run2.conclusion !== "cancelled" || !isPoolEligible(run2, rules)) {
       kept.push(run2);
       continue;
     }
-    const winner = winners.get(groupKey(run2));
-    if (winner === void 0 || winner === run2) {
+    const latest = newest.get(groupKey(run2));
+    if (latest === void 0 || latest === run2) {
       kept.push(run2);
     } else {
-      dropped.push({ run: run2, supersededBy: winner });
+      dropped.push({ run: run2, supersededBy: latest });
     }
   }
   return { kept, dropped };
@@ -25438,7 +25438,10 @@ var runPrivate = async (deps, inputs) => {
         currentWorkflowPath,
         lookupWorkflowPath
       );
-      const { kept, dropped } = dedupToLatest(afterSelf, inputs.dedupChecks);
+      const { kept, dropped } = dropSupersededCancellations(
+        afterSelf,
+        inputs.dedupChecks
+      );
       lastDropped = dropped;
       lastEvaluated = kept.length;
       lastCompleted = kept.filter((r) => r.status === "completed").length;
@@ -25550,7 +25553,10 @@ var runPublic = async (deps, inputs) => {
         currentWorkflowPath,
         lookupWorkflowPath
       );
-      const { kept, dropped } = dedupToLatest(afterSelf, inputs.dedupChecks);
+      const { kept, dropped } = dropSupersededCancellations(
+        afterSelf,
+        inputs.dedupChecks
+      );
       lastDropped = dropped;
       lastEvaluated = kept.length;
       lastCompleted = kept.filter((r) => r.status === "completed").length;
