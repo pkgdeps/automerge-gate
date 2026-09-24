@@ -158,8 +158,14 @@ export const createWorkflowPathLookup = (
       const path = result.data.path
       cache.set(runId, path)
       return path
-    } catch {
-      cache.set(runId, null)
+    } catch (err) {
+      // Only a 4xx (e.g. missing `actions: read`, or a deleted run) is
+      // permanent enough to remember. A 5xx or network error that
+      // outlived the retries is left uncached so the next poll asks
+      // again instead of treating the run as unresolvable for the rest
+      // of the gate.
+      const status = (err as { status?: number }).status
+      if (status !== undefined && status < 500) cache.set(runId, null)
       return null
     }
   }

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fetchAllCheckRuns, withRetry, type OctokitLike } from '../src/api.js'
+import {
+  createWorkflowPathLookup,
+  fetchAllCheckRuns,
+  withRetry,
+  type OctokitLike
+} from '../src/api.js'
 
 describe('fetchAllCheckRuns', () => {
   it('fetches suites and flattens runs across pages', async () => {
@@ -200,5 +205,63 @@ describe('withRetry', () => {
       { status: 503 }
     )
     expect(fn).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('createWorkflowPathLookup', () => {
+  const buildOctokit = (getWorkflowRun: ReturnType<typeof vi.fn>) =>
+    ({
+      rest: { actions: { getWorkflowRun } }
+    }) as unknown as OctokitLike
+
+  it('memoizes a resolved path per run id', async () => {
+    const getWorkflowRun = vi
+      .fn()
+      .mockResolvedValue({ data: { path: '.github/workflows/ci.yaml' } })
+    const lookup = createWorkflowPathLookup(
+      buildOctokit(getWorkflowRun),
+      'o',
+      'r'
+    )
+    expect(await lookup(1)).toBe('.github/workflows/ci.yaml')
+    expect(await lookup(1)).toBe('.github/workflows/ci.yaml')
+    expect(getWorkflowRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('memoizes null after a 4xx', async () => {
+    const getWorkflowRun = vi.fn().mockRejectedValue({ status: 403 })
+    const lookup = createWorkflowPathLookup(
+      buildOctokit(getWorkflowRun),
+      'o',
+      'r'
+    )
+    expect(await lookup(1)).toBeNull()
+    expect(await lookup(1)).toBeNull()
+    expect(getWorkflowRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not memoize a transient failure, so a later call can resolve', async () => {
+    vi.useFakeTimers()
+    try {
+      const getWorkflowRun = vi
+        .fn()
+        .mockRejectedValueOnce({ status: 502 })
+        .mockRejectedValueOnce({ status: 502 })
+        .mockRejectedValueOnce({ status: 502 })
+        .mockRejectedValueOnce({ status: 502 })
+        .mockResolvedValue({ data: { path: '.github/workflows/ci.yaml' } })
+      const lookup = createWorkflowPathLookup(
+        buildOctokit(getWorkflowRun),
+        'o',
+        'r'
+      )
+      const first = lookup(1)
+      await vi.runAllTimersAsync()
+      expect(await first).toBeNull()
+      expect(await lookup(1)).toBe('.github/workflows/ci.yaml')
+      expect(getWorkflowRun).toHaveBeenCalledTimes(5)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

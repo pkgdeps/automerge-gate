@@ -24930,8 +24930,9 @@ var createWorkflowPathLookup = (octokit, owner, repo) => {
       const path2 = result.data.path;
       cache.set(runId, path2);
       return path2;
-    } catch {
-      cache.set(runId, null);
+    } catch (err) {
+      const status = err.status;
+      if (status !== void 0 && status < 500) cache.set(runId, null);
       return null;
     }
   };
