@@ -344,6 +344,63 @@ describe('runPublic', () => {
       expect(outputs['state']).toBe('failure')
     })
 
+    it('a workflow rule in ignore-checks drops a run that has no jobs yet', async () => {
+      const setFailedSpy = vi
+        .spyOn(core, 'setFailed')
+        .mockImplementation(() => {})
+      const outputs: Record<string, string> = {}
+      vi.spyOn(core, 'setOutput').mockImplementation((k, v) => {
+        outputs[k] = String(v)
+      })
+      // nightly.yml stays queued with no jobs (e.g. no runner is free).
+      useReplacedRun(() =>
+        HttpResponse.json({
+          total_count: 3,
+          workflow_runs: [
+            {
+              id: 101,
+              name: 'probe',
+              path: '.github/workflows/probe.yml',
+              event: 'pull_request',
+              status: 'completed',
+              check_suite_id: 10,
+              html_url: 'https://github.com/o/r/actions/runs/101'
+            },
+            {
+              id: 102,
+              name: 'probe',
+              path: '.github/workflows/probe.yml',
+              event: 'pull_request',
+              status: 'completed',
+              check_suite_id: 20,
+              html_url: 'https://github.com/o/r/actions/runs/102'
+            },
+            {
+              id: 103,
+              name: 'nightly',
+              path: '.github/workflows/nightly.yml',
+              event: 'pull_request',
+              status: 'queued',
+              check_suite_id: 30,
+              html_url: 'https://github.com/o/r/actions/runs/103'
+            }
+          ]
+        })
+      )
+
+      await runPublic(
+        buildDeps(),
+        buildInputs({
+          gateMode: 'public',
+          ignoreChecks: [{ workflow: 'nightly.yml' }]
+        })
+      )
+
+      expect(setFailedSpy).not.toHaveBeenCalled()
+      expect(outputs['state']).toBe('success')
+      expect(outputs['evaluated-checks']).toBe('2')
+    })
+
     it('without actions: read → fails before polling', async () => {
       const setFailedSpy = vi
         .spyOn(core, 'setFailed')
