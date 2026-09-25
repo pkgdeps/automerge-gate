@@ -166,12 +166,15 @@ export const createWorkflowPathLookup = (
   }
 }
 
+export const MISSING_ACTIONS_READ_MESSAGE =
+  'cannot list workflow runs for this SHA. automerge-gate requires `actions: read` in the job permissions.'
+
 // Lists the GitHub Actions workflow runs for the SHA. Used to recognise
 // runs that a newer run of the same workflow replaced (see replaced-runs.ts).
 // Returns null when the token cannot read the Actions API (4xx, usually a
-// missing `actions: read`), so the caller can fall back to evaluating
-// every check_run as before. 5xx errors are retried and then thrown, like
-// the check_run fetch, so the polling loop retries the whole iteration.
+// missing `actions: read`) so the gate can fail with a clear message.
+// 5xx errors are retried and then thrown, like the check_run fetch, so the
+// polling loop retries the whole iteration.
 export const fetchWorkflowRuns = async (
   octokit: OctokitLike,
   owner: string,

@@ -263,26 +263,29 @@ describe('runPublic', () => {
       expect(outputs['evaluated-checks']).toBe('2')
     })
 
-    it('without actions: read → warns and keeps the cancelled jobs', async () => {
+    it('without actions: read → fails before polling', async () => {
       const setFailedSpy = vi
         .spyOn(core, 'setFailed')
         .mockImplementation(() => {})
-      const warningSpy = vi.spyOn(core, 'warning').mockImplementation(() => {})
+      let suitesCalls = 0
       useReplacedRun(() =>
         HttpResponse.json(
           { message: 'Resource not accessible by integration' },
           { status: 403 }
         )
       )
+      server.use(
+        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () => {
+          suitesCalls++
+          return HttpResponse.json({ total_count: 0, check_suites: [] })
+        })
+      )
 
       await runPublic(buildDeps(), buildInputs({ gateMode: 'public' }))
 
       expect(setFailedSpy).toHaveBeenCalledTimes(1)
-      expect(
-        warningSpy.mock.calls.some((c) =>
-          String(c[0]).includes('actions: read')
-        )
-      ).toBe(true)
+      expect(String(setFailedSpy.mock.calls[0][0])).toContain('actions: read')
+      expect(suitesCalls).toBe(0)
     })
   })
 })

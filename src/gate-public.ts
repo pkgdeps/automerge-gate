@@ -4,6 +4,7 @@ import type { RunDeps } from './run-deps.js'
 import {
   fetchAllCheckRuns,
   fetchWorkflowRuns,
+  MISSING_ACTIONS_READ_MESSAGE,
   createWorkflowPathLookup
 } from './api.js'
 import {
@@ -48,7 +49,6 @@ export const runPublic = async (
 
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks)
 
-  let warnedNoWorkflowRuns = false
   const reportedDropped = new Set<number>()
 
   const fetchRuns = async () => {
@@ -66,15 +66,10 @@ export const runPublic = async (
         context.repo,
         sha
       )
-      if (workflowRuns === null && !warnedNoWorkflowRuns) {
-        warnedNoWorkflowRuns = true
-        core.warning(
-          'cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures'
-        )
-      }
+      if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE)
       const replaced = dropReplacedCancellations(
         all,
-        findReplacedSuites(workflowRuns ?? [])
+        findReplacedSuites(workflowRuns)
       )
       for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue
@@ -101,6 +96,20 @@ export const runPublic = async (
       core.warning(`API fetch failed during polling (will retry): ${message}`)
       throw err
     }
+  }
+
+  // Fail fast when the token cannot list workflow runs: without them the
+  // gate cannot tell a replaced run's cancellation from a real one, and
+  // polling would otherwise retry the permission error until timeout.
+  const workflowRunsProbe = await fetchWorkflowRuns(
+    octokit,
+    context.owner,
+    context.repo,
+    sha
+  ).catch(() => undefined)
+  if (workflowRunsProbe === null) {
+    core.setFailed(MISSING_ACTIONS_READ_MESSAGE)
+    return
   }
 
   const pollStartedAt = Date.now()

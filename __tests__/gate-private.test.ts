@@ -90,6 +90,39 @@ describe('runPrivate', () => {
     expect(typeof postBodies[0].target_url).toBe('string')
   })
 
+  it('auto_merge_enabled without actions: read → fails before polling, no POST', async () => {
+    const setFailedSpy = vi
+      .spyOn(core, 'setFailed')
+      .mockImplementation(() => {})
+    const postBodies: Array<Record<string, unknown>> = []
+    const postShas: string[] = []
+    captureStatusPosts(postBodies, postShas)
+    server.use(
+      http.get(`${BASE}/repos/:owner/:repo/actions/runs`, () =>
+        HttpResponse.json(
+          { message: 'Resource not accessible by integration' },
+          { status: 403 }
+        )
+      )
+    )
+
+    const deps = buildDeps({
+      eventName: 'pull_request',
+      action: 'auto_merge_enabled',
+      pr: {
+        number: 1,
+        head: { sha: 'sha-head' },
+        auto_merge: { enabled_by: { login: 'maintainer' } }
+      }
+    })
+
+    await runPrivate(deps, buildInputs())
+
+    expect(setFailedSpy).toHaveBeenCalledTimes(1)
+    expect(String(setFailedSpy.mock.calls[0][0])).toContain('actions: read')
+    expect(postBodies).toHaveLength(0)
+  })
+
   it('synchronize with auto-merge on → fresh POST to /statuses for new SHA (no PATCH for previous SHA)', async () => {
     const postBodies: Array<Record<string, unknown>> = []
     const postShas: string[] = []

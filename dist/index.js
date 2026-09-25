@@ -24924,6 +24924,7 @@ var createWorkflowPathLookup = (octokit, owner, repo) => {
     }
   };
 };
+var MISSING_ACTIONS_READ_MESSAGE = "cannot list workflow runs for this SHA. automerge-gate requires `actions: read` in the job permissions.";
 var fetchWorkflowRuns = async (octokit, owner, repo, sha) => {
   const listWorkflowRunsForRepo = octokit.rest.actions.listWorkflowRunsForRepo;
   try {
@@ -25427,22 +25428,16 @@ var runPrivate = async (deps, inputs) => {
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef);
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo);
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
-  let warnedNoWorkflowRuns = false;
   const reportedDropped = /* @__PURE__ */ new Set();
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(octokit, owner, repo, sha);
       lastTotal = allRuns.length;
       const workflowRuns = await fetchWorkflowRuns(octokit, owner, repo, sha);
-      if (workflowRuns === null && !warnedNoWorkflowRuns) {
-        warnedNoWorkflowRuns = true;
-        core3.warning(
-          "cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures"
-        );
-      }
+      if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE);
       const replaced = dropReplacedCancellations(
         allRuns,
-        findReplacedSuites(workflowRuns ?? [])
+        findReplacedSuites(workflowRuns)
       );
       for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue;
@@ -25468,6 +25463,16 @@ var runPrivate = async (deps, inputs) => {
       throw err;
     }
   };
+  const workflowRunsProbe = await fetchWorkflowRuns(
+    octokit,
+    owner,
+    repo,
+    sha
+  ).catch(() => void 0);
+  if (workflowRunsProbe === null) {
+    core3.setFailed(MISSING_ACTIONS_READ_MESSAGE);
+    return;
+  }
   const pollStartedAt = Date.now();
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
@@ -25546,7 +25551,6 @@ var runPublic = async (deps, inputs) => {
     context2.repo
   );
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
-  let warnedNoWorkflowRuns = false;
   const reportedDropped = /* @__PURE__ */ new Set();
   const fetchRuns = async () => {
     try {
@@ -25563,15 +25567,10 @@ var runPublic = async (deps, inputs) => {
         context2.repo,
         sha
       );
-      if (workflowRuns === null && !warnedNoWorkflowRuns) {
-        warnedNoWorkflowRuns = true;
-        core4.warning(
-          "cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures"
-        );
-      }
+      if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE);
       const replaced = dropReplacedCancellations(
         all,
-        findReplacedSuites(workflowRuns ?? [])
+        findReplacedSuites(workflowRuns)
       );
       for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue;
@@ -25597,6 +25596,16 @@ var runPublic = async (deps, inputs) => {
       throw err;
     }
   };
+  const workflowRunsProbe = await fetchWorkflowRuns(
+    octokit,
+    context2.owner,
+    context2.repo,
+    sha
+  ).catch(() => void 0);
+  if (workflowRunsProbe === null) {
+    core4.setFailed(MISSING_ACTIONS_READ_MESSAGE);
+    return;
+  }
   const pollStartedAt = Date.now();
   const result = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
