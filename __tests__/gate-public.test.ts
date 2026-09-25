@@ -244,12 +244,14 @@ describe('runPublic', () => {
               id: 101,
               path: '.github/workflows/probe.yml',
               event: 'pull_request',
+              status: 'completed',
               check_suite_id: 10
             },
             {
               id: 102,
               path: '.github/workflows/probe.yml',
               event: 'pull_request',
+              status: 'completed',
               check_suite_id: 20
             }
           ]
@@ -257,6 +259,142 @@ describe('runPublic', () => {
       )
 
       await runPublic(buildDeps(), buildInputs({ gateMode: 'public' }))
+
+      expect(setFailedSpy).not.toHaveBeenCalled()
+      expect(outputs['state']).toBe('success')
+      expect(outputs['evaluated-checks']).toBe('2')
+    })
+
+    it('waits for a newer run whose jobs have not appeared yet', async () => {
+      const setFailedSpy = vi
+        .spyOn(core, 'setFailed')
+        .mockImplementation(() => {})
+      const outputs: Record<string, string> = {}
+      vi.spyOn(core, 'setOutput').mockImplementation((k, v) => {
+        outputs[k] = String(v)
+      })
+      // Poll 1: the newer run (suite 20) is queued and has no jobs yet.
+      // Poll 2: its jobs exist and one of them failed.
+      let polls = 0
+      server.use(
+        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () => {
+          polls++
+          const suites = [
+            { id: 10, app: { slug: 'github-actions' }, status: 'completed' }
+          ]
+          if (polls > 1) {
+            suites.push({
+              id: 20,
+              app: { slug: 'github-actions' },
+              status: 'completed'
+            })
+          }
+          return HttpResponse.json({
+            total_count: suites.length,
+            check_suites: suites
+          })
+        }),
+        http.get(
+          `${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`,
+          ({ params }) =>
+            HttpResponse.json({
+              total_count: 1,
+              check_runs: [
+                {
+                  id: params.id === '10' ? 1 : 2,
+                  name: 'slow',
+                  status: 'completed',
+                  conclusion: params.id === '10' ? 'cancelled' : 'failure',
+                  details_url: ''
+                }
+              ]
+            })
+        ),
+        http.get(`${BASE}/repos/:owner/:repo/actions/runs`, () =>
+          HttpResponse.json({
+            total_count: 2,
+            workflow_runs: [
+              {
+                id: 101,
+                name: 'probe',
+                path: '.github/workflows/probe.yml',
+                event: 'pull_request',
+                status: 'completed',
+                check_suite_id: 10,
+                html_url: 'https://github.com/o/r/actions/runs/101'
+              },
+              {
+                id: 102,
+                name: 'probe',
+                path: '.github/workflows/probe.yml',
+                event: 'pull_request',
+                status: polls > 1 ? 'completed' : 'queued',
+                check_suite_id: 20,
+                html_url: 'https://github.com/o/r/actions/runs/102'
+              }
+            ]
+          })
+        )
+      )
+
+      await runPublic(buildDeps(), buildInputs({ gateMode: 'public' }))
+
+      expect(polls).toBeGreaterThan(1)
+      expect(setFailedSpy).toHaveBeenCalledTimes(1)
+      expect(outputs['state']).toBe('failure')
+    })
+
+    it('a workflow rule in ignore-checks drops a run that has no jobs yet', async () => {
+      const setFailedSpy = vi
+        .spyOn(core, 'setFailed')
+        .mockImplementation(() => {})
+      const outputs: Record<string, string> = {}
+      vi.spyOn(core, 'setOutput').mockImplementation((k, v) => {
+        outputs[k] = String(v)
+      })
+      // nightly.yml stays queued with no jobs (e.g. no runner is free).
+      useReplacedRun(() =>
+        HttpResponse.json({
+          total_count: 3,
+          workflow_runs: [
+            {
+              id: 101,
+              name: 'probe',
+              path: '.github/workflows/probe.yml',
+              event: 'pull_request',
+              status: 'completed',
+              check_suite_id: 10,
+              html_url: 'https://github.com/o/r/actions/runs/101'
+            },
+            {
+              id: 102,
+              name: 'probe',
+              path: '.github/workflows/probe.yml',
+              event: 'pull_request',
+              status: 'completed',
+              check_suite_id: 20,
+              html_url: 'https://github.com/o/r/actions/runs/102'
+            },
+            {
+              id: 103,
+              name: 'nightly',
+              path: '.github/workflows/nightly.yml',
+              event: 'pull_request',
+              status: 'queued',
+              check_suite_id: 30,
+              html_url: 'https://github.com/o/r/actions/runs/103'
+            }
+          ]
+        })
+      )
+
+      await runPublic(
+        buildDeps(),
+        buildInputs({
+          gateMode: 'public',
+          ignoreChecks: [{ workflow: 'nightly.yml' }]
+        })
+      )
 
       expect(setFailedSpy).not.toHaveBeenCalled()
       expect(outputs['state']).toBe('success')

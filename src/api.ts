@@ -207,9 +207,12 @@ export const fetchWorkflowRuns = async (
     )
     return runs.map((r) => ({
       id: r.id,
+      name: r.name,
       path: r.path,
       event: r.event,
-      check_suite_id: r.check_suite_id
+      status: r.status,
+      check_suite_id: r.check_suite_id,
+      html_url: r.html_url
     }))
   } catch (err) {
     const status = (err as { status?: number }).status

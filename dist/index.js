@@ -24939,9 +24939,12 @@ var fetchWorkflowRuns = async (octokit, owner, repo, sha) => {
     );
     return runs.map((r) => ({
       id: r.id,
+      name: r.name,
       path: r.path,
       event: r.event,
-      check_suite_id: r.check_suite_id
+      status: r.status,
+      check_suite_id: r.check_suite_id,
+      html_url: r.html_url
     }));
   } catch (err) {
     const status = err.status;
@@ -24991,6 +24994,21 @@ var dropReplacedCancellations = (runs, replacedSuites) => {
     }
   }
   return { kept, dropped };
+};
+var pendingRunsWithoutJobs = (workflowRuns, checkRuns, replacedSuites, currentWorkflowPath) => {
+  const suitesWithJobs = new Set(checkRuns.map((r) => r.suite_id));
+  return workflowRuns.filter(
+    (r) => r.status !== "completed" && !replacedSuites.has(r.check_suite_id) && !suitesWithJobs.has(r.check_suite_id) && r.path !== currentWorkflowPath
+  ).map((r) => ({
+    id: -r.id,
+    name: r.name,
+    status: "queued",
+    conclusion: null,
+    details_url: r.html_url,
+    app: { slug: "github-actions" },
+    suite_id: r.check_suite_id,
+    workflow_path: r.path
+  }));
 };
 
 // src/filter.ts
@@ -25435,10 +25453,8 @@ var runPrivate = async (deps, inputs) => {
       lastTotal = allRuns.length;
       const workflowRuns = await fetchWorkflowRuns(octokit, owner, repo, sha);
       if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE);
-      const replaced = dropReplacedCancellations(
-        allRuns,
-        findReplacedSuites(workflowRuns)
-      );
+      const replacedSuites = findReplacedSuites(workflowRuns);
+      const replaced = dropReplacedCancellations(allRuns, replacedSuites);
       for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue;
         reportedDropped.add(r.id);
@@ -25446,7 +25462,16 @@ var runPrivate = async (deps, inputs) => {
           `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
         );
       }
-      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath) : replaced.kept;
+      const waiting = pendingRunsWithoutJobs(
+        workflowRuns,
+        allRuns,
+        replacedSuites,
+        currentWorkflowPath
+      );
+      const enriched = [
+        ...needsWorkflowPath ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath) : replaced.kept,
+        ...waiting
+      ];
       const afterFilters = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         afterFilters,
@@ -25568,10 +25593,8 @@ var runPublic = async (deps, inputs) => {
         sha
       );
       if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE);
-      const replaced = dropReplacedCancellations(
-        all,
-        findReplacedSuites(workflowRuns)
-      );
+      const replacedSuites = findReplacedSuites(workflowRuns);
+      const replaced = dropReplacedCancellations(all, replacedSuites);
       for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue;
         reportedDropped.add(r.id);
@@ -25579,7 +25602,16 @@ var runPublic = async (deps, inputs) => {
           `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
         );
       }
-      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath) : replaced.kept;
+      const waiting = pendingRunsWithoutJobs(
+        workflowRuns,
+        all,
+        replacedSuites,
+        currentWorkflowPath
+      );
+      const enriched = [
+        ...needsWorkflowPath ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath) : replaced.kept,
+        ...waiting
+      ];
       const filtered = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         filtered,

@@ -330,6 +330,7 @@ The gate lists the workflow runs for the SHA (`GET /repos/{owner}/{repo}/actions
 - Only `cancelled` results are ignored. A job that failed in the older run still fails the gate.
 - The newest run of each workflow is always evaluated, so a run you cancel by hand, with no newer run, still fails the gate.
 - A `push` run and a `pull_request` run of the same workflow are treated as separate and never replace each other.
+- A workflow run that has started but has no jobs yet (the newer run is often in this state for a few seconds) counts as pending, so the gate waits for its jobs instead of reporting success early. Runs of the gate's own workflow file are not waited on. To stop waiting on a workflow whose runs can stay queued (for example on a self-hosted runner), exclude it with a `workflow` rule in `ignore-checks`; a `name` rule only matches once the jobs exist.
 - This needs `actions: read`. When the token cannot list workflow runs, the gate fails with an error that names the missing permission.
 
 The cases used to verify this on real GitHub are listed in [docs/e2e-test-cases.md](docs/e2e-test-cases.md).

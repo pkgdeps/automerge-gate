@@ -3,6 +3,7 @@ import type { AggregatedCheckRun } from '../src/filter.js'
 import {
   dropReplacedCancellations,
   findReplacedSuites,
+  pendingRunsWithoutJobs,
   type WorkflowRunSummary
 } from '../src/replaced-runs.js'
 
@@ -10,8 +11,17 @@ const wr = (
   id: number,
   suite: number,
   path = '.github/workflows/ci.yml',
-  event = 'pull_request'
-): WorkflowRunSummary => ({ id, path, event, check_suite_id: suite })
+  event = 'pull_request',
+  status = 'completed'
+): WorkflowRunSummary => ({
+  id,
+  name: 'ci',
+  path,
+  event,
+  status,
+  check_suite_id: suite,
+  html_url: `https://github.com/o/r/actions/runs/${id}`
+})
 
 const cr = (
   id: number,
@@ -82,5 +92,69 @@ describe('dropReplacedCancellations', () => {
     const runs = [cr(1, 10, 'lint', 'cancelled')]
     const r = dropReplacedCancellations(runs, new Set())
     expect(r.kept.map((x) => x.id)).toEqual([1])
+  })
+})
+
+describe('pendingRunsWithoutJobs', () => {
+  const ci = '.github/workflows/ci.yml'
+  const gate = '.github/workflows/gate.yml'
+
+  // Observed on pkgdeps/automerge-gate-example#45 with v5.0.2: the gate
+  // polled while the newer run was queued with no jobs yet, and reported
+  // success before that run's jobs appeared.
+  it('returns a pending placeholder for an unfinished run with no jobs', () => {
+    const p = pendingRunsWithoutJobs(
+      [wr(2, 20, ci, 'pull_request', 'queued')],
+      [],
+      new Set(),
+      gate
+    )
+    expect(p).toEqual([
+      {
+        id: -2,
+        name: 'ci',
+        status: 'queued',
+        conclusion: null,
+        details_url: 'https://github.com/o/r/actions/runs/2',
+        app: { slug: 'github-actions' },
+        suite_id: 20,
+        workflow_path: ci
+      }
+    ])
+  })
+
+  it('skips a run whose jobs already exist', () => {
+    const p = pendingRunsWithoutJobs(
+      [wr(2, 20, ci, 'pull_request', 'in_progress')],
+      [cr(1, 20, 'slow', null, 'in_progress')],
+      new Set(),
+      gate
+    )
+    expect(p).toEqual([])
+  })
+
+  it('skips a completed run', () => {
+    const p = pendingRunsWithoutJobs([wr(2, 20)], [], new Set(), gate)
+    expect(p).toEqual([])
+  })
+
+  it('skips a replaced run', () => {
+    const p = pendingRunsWithoutJobs(
+      [wr(1, 10, ci, 'pull_request', 'queued')],
+      [],
+      new Set([10]),
+      gate
+    )
+    expect(p).toEqual([])
+  })
+
+  it("skips the gate's own workflow", () => {
+    const p = pendingRunsWithoutJobs(
+      [wr(3, 30, gate, 'pull_request', 'queued')],
+      [],
+      new Set(),
+      gate
+    )
+    expect(p).toEqual([])
   })
 })
