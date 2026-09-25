@@ -40,5 +40,3 @@ Added for [#41](https://github.com/pkgdeps/automerge-gate/pull/41) / [#42](https
 | TC-cancel-4 | Cancel the newest `pull_request` run by hand (no newer run exists). | failure. A cancellation with no newer run is kept. | [private: failure](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36082264332) |
 | TC-cancel-5 | The workflow also runs on `push`. Cancel the `push` run by hand while the newer `pull_request` run passes. | failure. `push` and `pull_request` runs never replace each other. | [private: failure](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36082394929) |
 | TC-cancel-6 | Private mode with Auto Merge enabled, then TC-cancel-1. | success, `probe/all-passed` is written as success | [private: success](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36081500216) |
-
-`actions: read` missing: covered by unit tests only. In the example repository (public), a job without `actions: read` could still list workflow runs, so the fail-fast path does not trigger there.

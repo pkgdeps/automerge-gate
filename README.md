@@ -330,7 +330,7 @@ The gate lists the workflow runs for the SHA (`GET /repos/{owner}/{repo}/actions
 - Only `cancelled` results are ignored. A job that failed in the older run still fails the gate.
 - The newest run of each workflow is always evaluated, so a run you cancel by hand, with no newer run, still fails the gate.
 - A `push` run and a `pull_request` run of the same workflow are treated as separate and never replace each other.
-- This needs `actions: read`. When the token cannot list workflow runs, the gate fails with an error that names the missing permission. (In a public repository the list may still be readable without the permission; grant it anyway so the gate works the same in private repositories.)
+- This needs `actions: read`. When the token cannot list workflow runs, the gate fails with an error that names the missing permission.
 
 The cases used to verify this on real GitHub are listed in [docs/e2e-test-cases.md](docs/e2e-test-cases.md).
 
