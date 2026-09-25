@@ -9,7 +9,8 @@ import {
 } from './api.js'
 import {
   dropReplacedCancellations,
-  findReplacedSuites
+  findReplacedSuites,
+  pendingRunsWithoutJobs
 } from './replaced-runs.js'
 import { applyFilters, hasWorkflowRule } from './filter.js'
 import {
@@ -150,10 +151,8 @@ export const runPrivate = async (
       lastTotal = allRuns.length
       const workflowRuns = await fetchWorkflowRuns(octokit, owner, repo, sha)
       if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE)
-      const replaced = dropReplacedCancellations(
-        allRuns,
-        findReplacedSuites(workflowRuns)
-      )
+      const replacedSuites = findReplacedSuites(workflowRuns)
+      const replaced = dropReplacedCancellations(allRuns, replacedSuites)
       for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue
         reportedDropped.add(r.id)
@@ -161,9 +160,18 @@ export const runPrivate = async (
           `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
         )
       }
-      const enriched = needsWorkflowPath
-        ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath)
-        : replaced.kept
+      const waiting = pendingRunsWithoutJobs(
+        workflowRuns,
+        allRuns,
+        replacedSuites,
+        currentWorkflowPath
+      )
+      const enriched = [
+        ...(needsWorkflowPath
+          ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath)
+          : replaced.kept),
+        ...waiting
+      ]
       const afterFilters = applyFilters(enriched, inputs.ignoreChecks)
       const afterSelf = await excludeOwnWorkflowRuns(
         afterFilters,

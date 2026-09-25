@@ -2,12 +2,15 @@ import type { AggregatedCheckRun } from './filter.js'
 
 // A GitHub Actions workflow run on the head SHA, as returned by
 // `GET /repos/{owner}/{repo}/actions/runs?head_sha=...`. Only the fields
-// needed to decide supersession are kept.
+// needed by the gate are kept.
 export type WorkflowRunSummary = {
   id: number
+  name: string
   path: string
   event: string
+  status: string
   check_suite_id: number
+  html_url: string
 }
 
 // Returns the check_suite ids of workflow runs that a newer run of the
@@ -63,4 +66,44 @@ export const dropReplacedCancellations = (
     }
   }
   return { kept, dropped }
+}
+
+// Returns a pending placeholder for every workflow run on the SHA that
+// has not finished yet but has no check_run so far.
+//
+// A workflow run exists as soon as GitHub queues it, but its jobs only
+// show up as check_runs once they are created. A run that was just
+// started, for example the newer run that replaced a cancelled one, can
+// sit in that state for a few seconds. Without a placeholder the gate
+// does not know the run exists and can report success before its jobs
+// appear.
+//
+// Skipped: replaced runs (their verdict comes from the newer run), runs
+// of the gate's own workflow file (the gate would wait for itself), and
+// runs that already have a check_run (the check_runs carry the state).
+export const pendingRunsWithoutJobs = (
+  workflowRuns: WorkflowRunSummary[],
+  checkRuns: AggregatedCheckRun[],
+  replacedSuites: Set<number>,
+  currentWorkflowPath: string | null
+): AggregatedCheckRun[] => {
+  const suitesWithJobs = new Set(checkRuns.map((r) => r.suite_id))
+  return workflowRuns
+    .filter(
+      (r) =>
+        r.status !== 'completed' &&
+        !replacedSuites.has(r.check_suite_id) &&
+        !suitesWithJobs.has(r.check_suite_id) &&
+        r.path !== currentWorkflowPath
+    )
+    .map((r) => ({
+      id: -r.id,
+      name: r.name,
+      status: 'queued',
+      conclusion: null,
+      details_url: r.html_url,
+      app: { slug: 'github-actions' },
+      suite_id: r.check_suite_id,
+      workflow_path: r.path
+    }))
 }
