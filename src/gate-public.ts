@@ -1,7 +1,15 @@
 import * as core from '@actions/core'
 import type { ParsedInputs } from './inputs.js'
 import type { RunDeps } from './run-deps.js'
-import { fetchAllCheckRuns, createWorkflowPathLookup } from './api.js'
+import {
+  fetchAllCheckRuns,
+  fetchWorkflowRuns,
+  createWorkflowPathLookup
+} from './api.js'
+import {
+  dropSupersededCancellations,
+  findSupersededSuites
+} from './superseded.js'
 import {
   applyFilters,
   hasWorkflowRule,
@@ -40,6 +48,9 @@ export const runPublic = async (
 
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks)
 
+  let warnedNoWorkflowRuns = false
+  const reportedDropped = new Set<number>()
+
   const fetchRuns = async () => {
     try {
       const all = await fetchAllCheckRuns(
@@ -49,9 +60,32 @@ export const runPublic = async (
         sha
       )
       lastTotal = all.length
+      const workflowRuns = await fetchWorkflowRuns(
+        octokit,
+        context.owner,
+        context.repo,
+        sha
+      )
+      if (workflowRuns === null && !warnedNoWorkflowRuns) {
+        warnedNoWorkflowRuns = true
+        core.warning(
+          'cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures'
+        )
+      }
+      const superseded = dropSupersededCancellations(
+        all,
+        findSupersededSuites(workflowRuns ?? [])
+      )
+      for (const r of superseded.dropped) {
+        if (reportedDropped.has(r.id)) continue
+        reportedDropped.add(r.id)
+        core.info(
+          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+        )
+      }
       const enriched = needsWorkflowPath
-        ? await resolveWorkflowPaths(all, lookupWorkflowPath)
-        : all
+        ? await resolveWorkflowPaths(superseded.kept, lookupWorkflowPath)
+        : superseded.kept
       const filtered = applyFilters(enriched, inputs.ignoreChecks)
       const afterSelf = await excludeOwnWorkflowRuns(
         filtered,

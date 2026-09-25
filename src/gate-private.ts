@@ -1,7 +1,15 @@
 import * as core from '@actions/core'
 import type { ParsedInputs } from './inputs.js'
 import type { RunDeps } from './run-deps.js'
-import { fetchAllCheckRuns, createWorkflowPathLookup } from './api.js'
+import {
+  fetchAllCheckRuns,
+  fetchWorkflowRuns,
+  createWorkflowPathLookup
+} from './api.js'
+import {
+  dropSupersededCancellations,
+  findSupersededSuites
+} from './superseded.js'
 import { applyFilters, hasWorkflowRule } from './filter.js'
 import {
   excludeOwnWorkflowRuns,
@@ -133,13 +141,34 @@ export const runPrivate = async (
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo)
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks)
 
+  let warnedNoWorkflowRuns = false
+  const reportedDropped = new Set<number>()
+
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(octokit, owner, repo, sha)
       lastTotal = allRuns.length
+      const workflowRuns = await fetchWorkflowRuns(octokit, owner, repo, sha)
+      if (workflowRuns === null && !warnedNoWorkflowRuns) {
+        warnedNoWorkflowRuns = true
+        core.warning(
+          'cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures'
+        )
+      }
+      const superseded = dropSupersededCancellations(
+        allRuns,
+        findSupersededSuites(workflowRuns ?? [])
+      )
+      for (const r of superseded.dropped) {
+        if (reportedDropped.has(r.id)) continue
+        reportedDropped.add(r.id)
+        core.info(
+          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+        )
+      }
       const enriched = needsWorkflowPath
-        ? await resolveWorkflowPaths(allRuns, lookupWorkflowPath)
-        : allRuns
+        ? await resolveWorkflowPaths(superseded.kept, lookupWorkflowPath)
+        : superseded.kept
       const afterFilters = applyFilters(enriched, inputs.ignoreChecks)
       const afterSelf = await excludeOwnWorkflowRuns(
         afterFilters,

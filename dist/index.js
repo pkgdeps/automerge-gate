@@ -24924,6 +24924,30 @@ var createWorkflowPathLookup = (octokit, owner, repo) => {
     }
   };
 };
+var fetchWorkflowRuns = async (octokit, owner, repo, sha) => {
+  const listWorkflowRunsForRepo = octokit.rest.actions.listWorkflowRunsForRepo;
+  try {
+    const runs = await withRetry(
+      () => octokit.paginate(listWorkflowRunsForRepo, {
+        owner,
+        repo,
+        head_sha: sha,
+        per_page: 100
+      }),
+      { retries: 3, baseDelayMs: 500 }
+    );
+    return runs.map((r) => ({
+      id: r.id,
+      path: r.path,
+      event: r.event,
+      check_suite_id: r.check_suite_id
+    }));
+  } catch (err) {
+    const status = err.status;
+    if (status !== void 0 && status < 500) return null;
+    throw err;
+  }
+};
 var withRetry = async (fn, options) => {
   let lastErr;
   for (let attempt = 0; attempt <= options.retries; attempt++) {
@@ -24939,6 +24963,33 @@ var withRetry = async (fn, options) => {
     }
   }
   throw lastErr;
+};
+
+// src/superseded.ts
+var findSupersededSuites = (workflowRuns) => {
+  const newest = /* @__PURE__ */ new Map();
+  const key = (r) => JSON.stringify([r.path, r.event]);
+  for (const r of workflowRuns) {
+    const current = newest.get(key(r));
+    if (current === void 0 || r.id > current) newest.set(key(r), r.id);
+  }
+  const superseded = /* @__PURE__ */ new Set();
+  for (const r of workflowRuns) {
+    if (newest.get(key(r)) !== r.id) superseded.add(r.check_suite_id);
+  }
+  return superseded;
+};
+var dropSupersededCancellations = (runs, supersededSuites) => {
+  const kept = [];
+  const dropped = [];
+  for (const r of runs) {
+    if (r.conclusion === "cancelled" && supersededSuites.has(r.suite_id)) {
+      dropped.push(r);
+    } else {
+      kept.push(r);
+    }
+  }
+  return { kept, dropped };
 };
 
 // src/filter.ts
@@ -25376,11 +25427,31 @@ var runPrivate = async (deps, inputs) => {
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef);
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo);
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
+  let warnedNoWorkflowRuns = false;
+  const reportedDropped = /* @__PURE__ */ new Set();
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(octokit, owner, repo, sha);
       lastTotal = allRuns.length;
-      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(allRuns, lookupWorkflowPath) : allRuns;
+      const workflowRuns = await fetchWorkflowRuns(octokit, owner, repo, sha);
+      if (workflowRuns === null && !warnedNoWorkflowRuns) {
+        warnedNoWorkflowRuns = true;
+        core3.warning(
+          "cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures"
+        );
+      }
+      const superseded = dropSupersededCancellations(
+        allRuns,
+        findSupersededSuites(workflowRuns ?? [])
+      );
+      for (const r of superseded.dropped) {
+        if (reportedDropped.has(r.id)) continue;
+        reportedDropped.add(r.id);
+        core3.info(
+          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+        );
+      }
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(superseded.kept, lookupWorkflowPath) : superseded.kept;
       const afterFilters = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         afterFilters,
@@ -25475,6 +25546,8 @@ var runPublic = async (deps, inputs) => {
     context2.repo
   );
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
+  let warnedNoWorkflowRuns = false;
+  const reportedDropped = /* @__PURE__ */ new Set();
   const fetchRuns = async () => {
     try {
       const all = await fetchAllCheckRuns(
@@ -25484,7 +25557,30 @@ var runPublic = async (deps, inputs) => {
         sha
       );
       lastTotal = all.length;
-      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(all, lookupWorkflowPath) : all;
+      const workflowRuns = await fetchWorkflowRuns(
+        octokit,
+        context2.owner,
+        context2.repo,
+        sha
+      );
+      if (workflowRuns === null && !warnedNoWorkflowRuns) {
+        warnedNoWorkflowRuns = true;
+        core4.warning(
+          "cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures"
+        );
+      }
+      const superseded = dropSupersededCancellations(
+        all,
+        findSupersededSuites(workflowRuns ?? [])
+      );
+      for (const r of superseded.dropped) {
+        if (reportedDropped.has(r.id)) continue;
+        reportedDropped.add(r.id);
+        core4.info(
+          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+        );
+      }
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(superseded.kept, lookupWorkflowPath) : superseded.kept;
       const filtered = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         filtered,

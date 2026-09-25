@@ -1,4 +1,5 @@
 import type { AggregatedCheckRun } from './filter.js'
+import type { WorkflowRunSummary } from './superseded.js'
 
 type CheckSuiteData = {
   id: number
@@ -162,6 +163,55 @@ export const createWorkflowPathLookup = (
       cache.set(runId, null)
       return null
     }
+  }
+}
+
+// Lists the GitHub Actions workflow runs for the SHA. Used to recognise
+// runs that a newer run of the same workflow replaced (see superseded.ts).
+// Returns null when the token cannot read the Actions API (4xx, usually a
+// missing `actions: read`), so the caller can fall back to evaluating
+// every check_run as before. 5xx errors are retried and then thrown, like
+// the check_run fetch, so the polling loop retries the whole iteration.
+export const fetchWorkflowRuns = async (
+  octokit: OctokitLike,
+  owner: string,
+  repo: string,
+  sha: string
+): Promise<WorkflowRunSummary[] | null> => {
+  const listWorkflowRunsForRepo = (
+    octokit as unknown as {
+      rest: {
+        actions: {
+          listWorkflowRunsForRepo: (
+            params: Record<string, unknown>
+          ) => Promise<{
+            data: { workflow_runs: WorkflowRunSummary[] }
+          }>
+        }
+      }
+    }
+  ).rest.actions.listWorkflowRunsForRepo
+  try {
+    const runs = await withRetry(
+      () =>
+        octokit.paginate<WorkflowRunSummary>(listWorkflowRunsForRepo as never, {
+          owner,
+          repo,
+          head_sha: sha,
+          per_page: 100
+        }),
+      { retries: 3, baseDelayMs: 500 }
+    )
+    return runs.map((r) => ({
+      id: r.id,
+      path: r.path,
+      event: r.event,
+      check_suite_id: r.check_suite_id
+    }))
+  } catch (err) {
+    const status = (err as { status?: number }).status
+    if (status !== undefined && status < 500) return null
+    throw err
   }
 }
 
