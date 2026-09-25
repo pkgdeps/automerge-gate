@@ -30,7 +30,7 @@ These were last run against v4. PR links point to the run in the example reposit
 
 ## Cancelled runs replaced by a newer run
 
-Added for [#41](https://github.com/pkgdeps/automerge-gate/pull/41) / [#42](https://github.com/pkgdeps/automerge-gate/pull/42). All run in [automerge-gate-example#44](https://github.com/pkgdeps/automerge-gate-example/pull/44) with a `cancel-probe` workflow: `slow` (`sleep 60`) and `after` (`needs: slow`), with `concurrency: cancel-in-progress: true` at the workflow level.
+Added for [#41](https://github.com/pkgdeps/automerge-gate/pull/41) / [#42](https://github.com/pkgdeps/automerge-gate/pull/42). TC-cancel-1 to 6 run in [automerge-gate-example#44](https://github.com/pkgdeps/automerge-gate-example/pull/44), TC-cancel-7 in [#45](https://github.com/pkgdeps/automerge-gate-example/pull/45), with a `cancel-probe` workflow: `slow` (`sleep 60`) and `after` (`needs: slow`), with `concurrency: cancel-in-progress: true` at the workflow level.
 
 | Case | Steps | Expected | Last run |
 | --- | --- | --- | --- |
@@ -40,3 +40,4 @@ Added for [#41](https://github.com/pkgdeps/automerge-gate/pull/41) / [#42](https
 | TC-cancel-4 | Cancel the newest `pull_request` run by hand (no newer run exists). | failure. A cancellation with no newer run is kept. | [private: failure](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36082264332) |
 | TC-cancel-5 | The workflow also runs on `push`. Cancel the `push` run by hand while the newer `pull_request` run passes. | failure. `push` and `pull_request` runs never replace each other. | [private: failure](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36082394929) |
 | TC-cancel-6 | Private mode with Auto Merge enabled, then TC-cancel-1. | success, `probe/all-passed` is written as success | [private: success](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36081500216) |
+| TC-cancel-7 | TC-cancel-2 timed so the gate polls while the newer `cancel-probe` run is queued and has no jobs yet. | The gate keeps polling until that run's jobs appear and finish. v5.0.2 reported success on the first poll. | [v5.0.2, private: success too early](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36083244779) / [fix, private: waits, then success](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36083779635) |
