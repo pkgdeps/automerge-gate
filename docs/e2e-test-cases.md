@@ -41,3 +41,12 @@ Added for [#41](https://github.com/pkgdeps/automerge-gate/pull/41) / [#42](https
 | TC-cancel-5 | The workflow also runs on `push`. Cancel the `push` run by hand while the newer `pull_request` run passes. | failure. `push` and `pull_request` runs never replace each other. | [private: failure](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36082394929) |
 | TC-cancel-6 | Private mode with Auto Merge enabled, then TC-cancel-1. | success, `probe/all-passed` is written as success | [private: success](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36081500216) |
 | TC-cancel-7 | TC-cancel-2 timed so the gate polls while the newer `cancel-probe` run is queued and has no jobs yet. | The gate keeps polling until that run's jobs appear and finish. v5.0.2 reported success on the first poll. | [v5.0.2, private: success too early](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36083244779) / [fix, private: waits, then success](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36083779635) |
+
+## Failed jobs in a run replaced by a newer run
+
+TC-label-1 and 2 run in [automerge-gate-example#46](https://github.com/pkgdeps/automerge-gate-example/pull/46) with a `label-probe` workflow (`pull_request` with `labeled` / `unlabeled`): job `breaking` fails unless the PR has the `probe-ok` label, and is skipped via `if:` when it has `probe-skip`. The gate does not evaluate on `labeled`, so each case enables Auto Merge after the label is added.
+
+| Case | Steps | Expected | Last run |
+| --- | --- | --- | --- |
+| TC-label-1 | Push without labels; `breaking` fails and its run completes. Add `probe-ok`; the `labeled` run on the same SHA passes `breaking`. Enable Auto Merge. | success. The older `breaking` failure is ignored because the newer run ran the same job. (v5.0.3 fails here.) | [private, v5.0.3: failure](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36128187311) / [private, fix: success](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36128304400) |
+| TC-label-2 | Push without labels; `breaking` fails. Add `probe-skip`; the newer run skips `breaking`. Enable Auto Merge. | failure. A `skipped` job in the newer run does not clear the older failure. | [private, fix: failure](https://github.com/pkgdeps/automerge-gate-example/actions/runs/36128441148) |

@@ -24975,19 +24975,30 @@ var findReplacedSuites = (workflowRuns) => {
   const key = (r) => JSON.stringify([r.path, r.event]);
   for (const r of workflowRuns) {
     const current = newest.get(key(r));
-    if (current === void 0 || r.id > current) newest.set(key(r), r.id);
+    if (current === void 0 || r.id > current.id) newest.set(key(r), r);
   }
-  const replaced = /* @__PURE__ */ new Set();
+  const replaced = /* @__PURE__ */ new Map();
   for (const r of workflowRuns) {
-    if (newest.get(key(r)) !== r.id) replaced.add(r.check_suite_id);
+    const n = newest.get(key(r));
+    if (n !== void 0 && n.id !== r.id) {
+      replaced.set(r.check_suite_id, n.check_suite_id);
+    }
   }
   return replaced;
 };
-var dropReplacedCancellations = (runs, replacedSuites) => {
+var dropReplacedRuns = (runs, replacedSuites) => {
+  const ranInSuite = /* @__PURE__ */ new Set();
+  for (const r of runs) {
+    if (r.status === "completed" && r.conclusion !== "skipped") {
+      ranInSuite.add(JSON.stringify([r.suite_id, r.name]));
+    }
+  }
   const kept = [];
   const dropped = [];
   for (const r of runs) {
-    if (r.conclusion === "cancelled" && replacedSuites.has(r.suite_id)) {
+    const newestSuite = replacedSuites.get(r.suite_id);
+    const replaced = newestSuite !== void 0 && (r.conclusion === "cancelled" || ranInSuite.has(JSON.stringify([newestSuite, r.name])));
+    if (replaced) {
       dropped.push(r);
     } else {
       kept.push(r);
@@ -25454,12 +25465,12 @@ var runPrivate = async (deps, inputs) => {
       const workflowRuns = await fetchWorkflowRuns(octokit, owner, repo, sha);
       if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE);
       const replacedSuites = findReplacedSuites(workflowRuns);
-      const replaced = dropReplacedCancellations(allRuns, replacedSuites);
+      const replaced = dropReplacedRuns(allRuns, replacedSuites);
       for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue;
         reportedDropped.add(r.id);
         core3.info(
-          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+          `ignoring ${r.name} (${r.conclusion ?? r.status}): a newer run of the same workflow replaced it`
         );
       }
       const waiting = pendingRunsWithoutJobs(
@@ -25594,12 +25605,12 @@ var runPublic = async (deps, inputs) => {
       );
       if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE);
       const replacedSuites = findReplacedSuites(workflowRuns);
-      const replaced = dropReplacedCancellations(all, replacedSuites);
+      const replaced = dropReplacedRuns(all, replacedSuites);
       for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue;
         reportedDropped.add(r.id);
         core4.info(
-          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+          `ignoring ${r.name} (${r.conclusion ?? r.status}): a newer run of the same workflow replaced it`
         );
       }
       const waiting = pendingRunsWithoutJobs(
