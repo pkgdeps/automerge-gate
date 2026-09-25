@@ -165,7 +165,10 @@ export const runPublic = async (
       ['polling iterations', String(result.iterations)]
     ])
   if (formatted.summaryMarkdown) {
-    s = s.addRaw(formatted.summaryMarkdown)
+    // addTable ends with a single newline, and GitHub keeps treating the
+    // following lines as part of the HTML <table> block until a blank
+    // line. Without this extra EOL "### Check results" shows as raw text.
+    s = s.addEOL().addRaw(formatted.summaryMarkdown)
   }
   await s.write()
 

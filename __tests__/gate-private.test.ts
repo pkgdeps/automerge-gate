@@ -264,6 +264,7 @@ describe('runPrivate', () => {
       }
     })
 
+    core.summary.emptyBuffer()
     await runPrivate(
       deps,
       buildInputs({
@@ -279,6 +280,9 @@ describe('runPrivate', () => {
       state: 'success',
       context: 'automerge-gate/all-passed'
     })
+    // A blank line must separate the HTML table from the Markdown heading,
+    // otherwise GitHub renders "### Check results" as literal text.
+    expect(core.summary.stringify()).toContain('</table>\n\n### Check results')
   })
 
   it('drive-by Approve (read permission) → no POST', async () => {

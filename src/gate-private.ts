@@ -57,7 +57,10 @@ const writeSummary = async (input: SummaryInput): Promise<void> => {
       ['polling iterations', String(input.iterations)]
     ])
   if (input.checkResultsMarkdown) {
-    s = s.addRaw(input.checkResultsMarkdown)
+    // addTable ends with a single newline, and GitHub keeps treating the
+    // following lines as part of the HTML <table> block until a blank
+    // line. Without this extra EOL "### Check results" shows as raw text.
+    s = s.addEOL().addRaw(input.checkResultsMarkdown)
   }
   await s.write()
 }
