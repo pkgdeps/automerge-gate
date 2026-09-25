@@ -8,7 +8,7 @@ import {
   createWorkflowPathLookup
 } from './api.js'
 import {
-  dropReplacedCancellations,
+  dropReplacedRuns,
   findReplacedSuites,
   pendingRunsWithoutJobs
 } from './replaced-runs.js'
@@ -69,12 +69,12 @@ export const runPublic = async (
       )
       if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE)
       const replacedSuites = findReplacedSuites(workflowRuns)
-      const replaced = dropReplacedCancellations(all, replacedSuites)
+      const replaced = dropReplacedRuns(all, replacedSuites)
       for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue
         reportedDropped.add(r.id)
         core.info(
-          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+          `ignoring ${r.name} (${r.conclusion ?? r.status}): a newer run of the same workflow replaced it`
         )
       }
       const waiting = pendingRunsWithoutJobs(

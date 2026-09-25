@@ -28,38 +28,62 @@ export type WorkflowRunSummary = {
 // `pull_request` run of the same workflow are independent verdicts and
 // never replace each other. Within a group the highest run id is the
 // newest (ids are assigned at creation), and every other run in the group
-// is replaced.
+// is replaced. The result maps each replaced check_suite id to the
+// check_suite id of the newest run in its group.
 export const findReplacedSuites = (
   workflowRuns: WorkflowRunSummary[]
-): Set<number> => {
-  const newest = new Map<string, number>()
+): Map<number, number> => {
+  const newest = new Map<string, WorkflowRunSummary>()
   const key = (r: WorkflowRunSummary): string =>
     JSON.stringify([r.path, r.event])
   for (const r of workflowRuns) {
     const current = newest.get(key(r))
-    if (current === undefined || r.id > current) newest.set(key(r), r.id)
+    if (current === undefined || r.id > current.id) newest.set(key(r), r)
   }
-  const replaced = new Set<number>()
+  const replaced = new Map<number, number>()
   for (const r of workflowRuns) {
-    if (newest.get(key(r)) !== r.id) replaced.add(r.check_suite_id)
+    const n = newest.get(key(r))
+    if (n !== undefined && n.id !== r.id) {
+      replaced.set(r.check_suite_id, n.check_suite_id)
+    }
   }
   return replaced
 }
 
-// Drops `cancelled` check_runs that belong to a replaced workflow run.
-// Only cancellations are dropped: a job that failed before its run was
-// replaced still counts, because the newer run may skip that job via
-// `if:` (a `skipped` conclusion is green) without proving the failure
-// away. The newest run of each workflow is always evaluated as is, so a
-// manual cancel with no newer run stays red.
-export const dropReplacedCancellations = (
+// Drops check_runs of a replaced workflow run whose verdict comes from
+// the newer run instead:
+//
+// - A `cancelled` job is always dropped: the newer run cancelled it.
+// - Any other job is dropped only when the newest run of the same
+//   workflow has a job with the same name that completed with a
+//   conclusion other than `skipped`. The newer run actually ran the job,
+//   so its result is the verdict. This covers a job whose outcome
+//   depends on the event payload (for example a PR label): re-running
+//   the old run replays the old payload, so only the newer run can pass.
+//
+// A failure is kept when the newer run skips that job via `if:` (a
+// `skipped` conclusion is green) or has not finished it yet: neither
+// proves the failure away. The newest run of each workflow is always
+// evaluated as is, so a manual cancel with no newer run stays red.
+export const dropReplacedRuns = (
   runs: AggregatedCheckRun[],
-  replacedSuites: Set<number>
+  replacedSuites: Map<number, number>
 ): { kept: AggregatedCheckRun[]; dropped: AggregatedCheckRun[] } => {
+  const ranInSuite = new Set<string>()
+  for (const r of runs) {
+    if (r.status === 'completed' && r.conclusion !== 'skipped') {
+      ranInSuite.add(JSON.stringify([r.suite_id, r.name]))
+    }
+  }
   const kept: AggregatedCheckRun[] = []
   const dropped: AggregatedCheckRun[] = []
   for (const r of runs) {
-    if (r.conclusion === 'cancelled' && replacedSuites.has(r.suite_id)) {
+    const newestSuite = replacedSuites.get(r.suite_id)
+    const replaced =
+      newestSuite !== undefined &&
+      (r.conclusion === 'cancelled' ||
+        ranInSuite.has(JSON.stringify([newestSuite, r.name])))
+    if (replaced) {
       dropped.push(r)
     } else {
       kept.push(r)
@@ -84,7 +108,7 @@ export const dropReplacedCancellations = (
 export const pendingRunsWithoutJobs = (
   workflowRuns: WorkflowRunSummary[],
   checkRuns: AggregatedCheckRun[],
-  replacedSuites: Set<number>,
+  replacedSuites: Map<number, number>,
   currentWorkflowPath: string | null
 ): AggregatedCheckRun[] => {
   const suitesWithJobs = new Set(checkRuns.map((r) => r.suite_id))

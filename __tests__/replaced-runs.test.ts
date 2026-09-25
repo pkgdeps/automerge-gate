@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AggregatedCheckRun } from '../src/filter.js'
 import {
-  dropReplacedCancellations,
+  dropReplacedRuns,
   findReplacedSuites,
   pendingRunsWithoutJobs,
   type WorkflowRunSummary
@@ -42,7 +42,10 @@ const cr = (
 describe('findReplacedSuites', () => {
   it('marks older runs of the same workflow and event', () => {
     const s = findReplacedSuites([wr(1, 10), wr(2, 20), wr(3, 30)])
-    expect([...s].sort()).toEqual([10, 20])
+    expect([...s].sort()).toEqual([
+      [10, 30],
+      [20, 30]
+    ])
   })
 
   it('keeps runs of different workflows apart', () => {
@@ -63,11 +66,11 @@ describe('findReplacedSuites', () => {
 
   it('uses the run id, not the input order, to pick the newest', () => {
     const s = findReplacedSuites([wr(2, 20), wr(1, 10)])
-    expect([...s]).toEqual([10])
+    expect([...s]).toEqual([[10, 20]])
   })
 })
 
-describe('dropReplacedCancellations', () => {
+describe('dropReplacedRuns', () => {
   // Observed on pkgdeps/automerge-gate-example#44: the replaced run left
   // a running job and a never-started `needs:` job, both `cancelled`.
   it('drops every cancelled job of a replaced run', () => {
@@ -77,20 +80,65 @@ describe('dropReplacedCancellations', () => {
       cr(3, 20, 'slow', 'success'),
       cr(4, 20, 'after', 'success')
     ]
-    const r = dropReplacedCancellations(runs, new Set([10]))
+    const r = dropReplacedRuns(runs, new Map([[10, 20]]))
     expect(r.kept.map((x) => x.id)).toEqual([3, 4])
     expect(r.dropped.map((x) => x.id)).toEqual([1, 2])
   })
 
   it('keeps a failure from a replaced run', () => {
     const runs = [cr(1, 10, 'lint', 'failure'), cr(2, 20, 'lint', 'skipped')]
-    const r = dropReplacedCancellations(runs, new Set([10]))
+    const r = dropReplacedRuns(runs, new Map([[10, 20]]))
     expect(r.kept.map((x) => x.id)).toEqual([1, 2])
+  })
+
+  // Reported after v5.0.3: a job that reads a PR label from the event
+  // payload failed in the `opened` run and passed in the `labeled` run on
+  // the same SHA. Re-running the old run replays the old payload, so the
+  // newer run's result has to be the verdict.
+  it('drops a failure when the newer run ran the same job', () => {
+    const runs = [
+      cr(1, 10, 'breaking', 'failure'),
+      cr(2, 20, 'breaking', 'success')
+    ]
+    const r = dropReplacedRuns(runs, new Map([[10, 20]]))
+    expect(r.kept.map((x) => x.id)).toEqual([2])
+    expect(r.dropped.map((x) => x.id)).toEqual([1])
+  })
+
+  it('keeps the newer failure when the newer run also failed', () => {
+    const runs = [cr(1, 10, 'lint', 'failure'), cr(2, 20, 'lint', 'failure')]
+    const r = dropReplacedRuns(runs, new Map([[10, 20]]))
+    expect(r.kept.map((x) => x.id)).toEqual([2])
+  })
+
+  it('keeps a failure while the newer run has not finished that job', () => {
+    const runs = [
+      cr(1, 10, 'lint', 'failure'),
+      cr(2, 20, 'lint', null, 'in_progress')
+    ]
+    const r = dropReplacedRuns(runs, new Map([[10, 20]]))
+    expect(r.kept.map((x) => x.id)).toEqual([1, 2])
+  })
+
+  it('keeps a failure when only a middle run ran the same job', () => {
+    const runs = [
+      cr(1, 10, 'lint', 'failure'),
+      cr(2, 20, 'lint', 'success'),
+      cr(3, 30, 'lint', 'skipped')
+    ]
+    const r = dropReplacedRuns(
+      runs,
+      new Map([
+        [10, 30],
+        [20, 30]
+      ])
+    )
+    expect(r.kept.map((x) => x.id)).toEqual([1, 2, 3])
   })
 
   it('keeps a cancelled run that no newer run replaced', () => {
     const runs = [cr(1, 10, 'lint', 'cancelled')]
-    const r = dropReplacedCancellations(runs, new Set())
+    const r = dropReplacedRuns(runs, new Map())
     expect(r.kept.map((x) => x.id)).toEqual([1])
   })
 })
@@ -106,7 +154,7 @@ describe('pendingRunsWithoutJobs', () => {
     const p = pendingRunsWithoutJobs(
       [wr(2, 20, ci, 'pull_request', 'queued')],
       [],
-      new Set(),
+      new Map(),
       gate
     )
     expect(p).toEqual([
@@ -127,14 +175,14 @@ describe('pendingRunsWithoutJobs', () => {
     const p = pendingRunsWithoutJobs(
       [wr(2, 20, ci, 'pull_request', 'in_progress')],
       [cr(1, 20, 'slow', null, 'in_progress')],
-      new Set(),
+      new Map(),
       gate
     )
     expect(p).toEqual([])
   })
 
   it('skips a completed run', () => {
-    const p = pendingRunsWithoutJobs([wr(2, 20)], [], new Set(), gate)
+    const p = pendingRunsWithoutJobs([wr(2, 20)], [], new Map(), gate)
     expect(p).toEqual([])
   })
 
@@ -142,7 +190,7 @@ describe('pendingRunsWithoutJobs', () => {
     const p = pendingRunsWithoutJobs(
       [wr(1, 10, ci, 'pull_request', 'queued')],
       [],
-      new Set([10]),
+      new Map([[10, 20]]),
       gate
     )
     expect(p).toEqual([])
@@ -152,7 +200,7 @@ describe('pendingRunsWithoutJobs', () => {
     const p = pendingRunsWithoutJobs(
       [wr(3, 30, gate, 'pull_request', 'queued')],
       [],
-      new Set(),
+      new Map(),
       gate
     )
     expect(p).toEqual([])
