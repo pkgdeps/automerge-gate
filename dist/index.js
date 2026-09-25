@@ -24965,25 +24965,25 @@ var withRetry = async (fn, options) => {
   throw lastErr;
 };
 
-// src/superseded.ts
-var findSupersededSuites = (workflowRuns) => {
+// src/replaced-runs.ts
+var findReplacedSuites = (workflowRuns) => {
   const newest = /* @__PURE__ */ new Map();
   const key = (r) => JSON.stringify([r.path, r.event]);
   for (const r of workflowRuns) {
     const current = newest.get(key(r));
     if (current === void 0 || r.id > current) newest.set(key(r), r.id);
   }
-  const superseded = /* @__PURE__ */ new Set();
+  const replaced = /* @__PURE__ */ new Set();
   for (const r of workflowRuns) {
-    if (newest.get(key(r)) !== r.id) superseded.add(r.check_suite_id);
+    if (newest.get(key(r)) !== r.id) replaced.add(r.check_suite_id);
   }
-  return superseded;
+  return replaced;
 };
-var dropSupersededCancellations = (runs, supersededSuites) => {
+var dropReplacedCancellations = (runs, replacedSuites) => {
   const kept = [];
   const dropped = [];
   for (const r of runs) {
-    if (r.conclusion === "cancelled" && supersededSuites.has(r.suite_id)) {
+    if (r.conclusion === "cancelled" && replacedSuites.has(r.suite_id)) {
       dropped.push(r);
     } else {
       kept.push(r);
@@ -25440,18 +25440,18 @@ var runPrivate = async (deps, inputs) => {
           "cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures"
         );
       }
-      const superseded = dropSupersededCancellations(
+      const replaced = dropReplacedCancellations(
         allRuns,
-        findSupersededSuites(workflowRuns ?? [])
+        findReplacedSuites(workflowRuns ?? [])
       );
-      for (const r of superseded.dropped) {
+      for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue;
         reportedDropped.add(r.id);
         core3.info(
           `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
         );
       }
-      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(superseded.kept, lookupWorkflowPath) : superseded.kept;
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath) : replaced.kept;
       const afterFilters = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         afterFilters,
@@ -25569,18 +25569,18 @@ var runPublic = async (deps, inputs) => {
           "cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures"
         );
       }
-      const superseded = dropSupersededCancellations(
+      const replaced = dropReplacedCancellations(
         all,
-        findSupersededSuites(workflowRuns ?? [])
+        findReplacedSuites(workflowRuns ?? [])
       );
-      for (const r of superseded.dropped) {
+      for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue;
         reportedDropped.add(r.id);
         core4.info(
           `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
         );
       }
-      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(superseded.kept, lookupWorkflowPath) : superseded.kept;
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath) : replaced.kept;
       const filtered = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         filtered,

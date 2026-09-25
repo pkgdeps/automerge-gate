@@ -25,8 +25,8 @@ export type WorkflowRunSummary = {
 // `pull_request` run of the same workflow are independent verdicts and
 // never replace each other. Within a group the highest run id is the
 // newest (ids are assigned at creation), and every other run in the group
-// is superseded.
-export const findSupersededSuites = (
+// is replaced.
+export const findReplacedSuites = (
   workflowRuns: WorkflowRunSummary[]
 ): Set<number> => {
   const newest = new Map<string, number>()
@@ -36,27 +36,27 @@ export const findSupersededSuites = (
     const current = newest.get(key(r))
     if (current === undefined || r.id > current) newest.set(key(r), r.id)
   }
-  const superseded = new Set<number>()
+  const replaced = new Set<number>()
   for (const r of workflowRuns) {
-    if (newest.get(key(r)) !== r.id) superseded.add(r.check_suite_id)
+    if (newest.get(key(r)) !== r.id) replaced.add(r.check_suite_id)
   }
-  return superseded
+  return replaced
 }
 
-// Drops `cancelled` check_runs that belong to a superseded workflow run.
+// Drops `cancelled` check_runs that belong to a replaced workflow run.
 // Only cancellations are dropped: a job that failed before its run was
 // replaced still counts, because the newer run may skip that job via
 // `if:` (a `skipped` conclusion is green) without proving the failure
 // away. The newest run of each workflow is always evaluated as is, so a
 // manual cancel with no newer run stays red.
-export const dropSupersededCancellations = (
+export const dropReplacedCancellations = (
   runs: AggregatedCheckRun[],
-  supersededSuites: Set<number>
+  replacedSuites: Set<number>
 ): { kept: AggregatedCheckRun[]; dropped: AggregatedCheckRun[] } => {
   const kept: AggregatedCheckRun[] = []
   const dropped: AggregatedCheckRun[] = []
   for (const r of runs) {
-    if (r.conclusion === 'cancelled' && supersededSuites.has(r.suite_id)) {
+    if (r.conclusion === 'cancelled' && replacedSuites.has(r.suite_id)) {
       dropped.push(r)
     } else {
       kept.push(r)

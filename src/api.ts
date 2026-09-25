@@ -1,5 +1,5 @@
 import type { AggregatedCheckRun } from './filter.js'
-import type { WorkflowRunSummary } from './superseded.js'
+import type { WorkflowRunSummary } from './replaced-runs.js'
 
 type CheckSuiteData = {
   id: number
@@ -167,7 +167,7 @@ export const createWorkflowPathLookup = (
 }
 
 // Lists the GitHub Actions workflow runs for the SHA. Used to recognise
-// runs that a newer run of the same workflow replaced (see superseded.ts).
+// runs that a newer run of the same workflow replaced (see replaced-runs.ts).
 // Returns null when the token cannot read the Actions API (4xx, usually a
 // missing `actions: read`), so the caller can fall back to evaluating
 // every check_run as before. 5xx errors are retried and then thrown, like

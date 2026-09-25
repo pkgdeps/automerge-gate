@@ -7,9 +7,9 @@ import {
   createWorkflowPathLookup
 } from './api.js'
 import {
-  dropSupersededCancellations,
-  findSupersededSuites
-} from './superseded.js'
+  dropReplacedCancellations,
+  findReplacedSuites
+} from './replaced-runs.js'
 import { applyFilters, hasWorkflowRule } from './filter.js'
 import {
   excludeOwnWorkflowRuns,
@@ -155,11 +155,11 @@ export const runPrivate = async (
           'cannot list workflow runs (token needs `actions: read`); cancelled runs replaced by a newer run of the same workflow are evaluated as failures'
         )
       }
-      const superseded = dropSupersededCancellations(
+      const replaced = dropReplacedCancellations(
         allRuns,
-        findSupersededSuites(workflowRuns ?? [])
+        findReplacedSuites(workflowRuns ?? [])
       )
-      for (const r of superseded.dropped) {
+      for (const r of replaced.dropped) {
         if (reportedDropped.has(r.id)) continue
         reportedDropped.add(r.id)
         core.info(
@@ -167,8 +167,8 @@ export const runPrivate = async (
         )
       }
       const enriched = needsWorkflowPath
-        ? await resolveWorkflowPaths(superseded.kept, lookupWorkflowPath)
-        : superseded.kept
+        ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath)
+        : replaced.kept
       const afterFilters = applyFilters(enriched, inputs.ignoreChecks)
       const afterSelf = await excludeOwnWorkflowRuns(
         afterFilters,
