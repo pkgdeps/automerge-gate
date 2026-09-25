@@ -177,11 +177,15 @@ describe('runPublic', () => {
       )
     )
 
+    core.summary.emptyBuffer()
     const deps = buildDeps()
     await runPublic(deps, buildInputs({ gateMode: 'public' }))
 
     expect(setFailedSpy).toHaveBeenCalledTimes(1)
     expect(String(setFailedSpy.mock.calls[0][0])).toContain('failure')
+    // A blank line must separate the HTML table from the Markdown heading,
+    // otherwise GitHub renders "### Check results" as literal text.
+    expect(core.summary.stringify()).toContain('</table>\n\n### Check results')
   })
   describe('cancelled runs replaced by a newer run of the same workflow', () => {
     // Mirrors pkgdeps/automerge-gate-example#44: two pull_request events
