@@ -25397,7 +25397,7 @@ var writeSummary = async (input) => {
     ["polling iterations", String(input.iterations)]
   ]);
   if (input.checkResultsMarkdown) {
-    s = s.addRaw(input.checkResultsMarkdown);
+    s = s.addEOL().addRaw(input.checkResultsMarkdown);
   }
   await s.write();
 };
@@ -25674,7 +25674,7 @@ var runPublic = async (deps, inputs) => {
     ["polling iterations", String(result.iterations)]
   ]);
   if (formatted.summaryMarkdown) {
-    s = s.addRaw(formatted.summaryMarkdown);
+    s = s.addEOL().addRaw(formatted.summaryMarkdown);
   }
   await s.write();
   core4.setOutput("state", result.state);
