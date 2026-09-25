@@ -85,7 +85,7 @@ sequenceDiagram
 3. After polling, the action exits 0 (success) or non-zero (failure). The job's check_run conclusion follows the exit code, and GitHub treats it as the required check's verdict.
 4. GitHub's native auto-merge fires when the required check turns green.
 
-The action does not write its own check_run in this mode (the JOB's auto-created one is the gate). Read-only `checks: read` permission is sufficient; add `actions: read` if `ignore-checks` uses a `workflow` rule (the action resolves run-to-workflow paths via the Actions API).
+The action does not write its own check_run in this mode (the JOB's auto-created one is the gate). Read-only `checks: read` plus `actions: read` is sufficient. `actions: read` lets the action list workflow runs, which it uses to ignore [cancelled runs replaced by a newer run](#cancelled-runs-replaced-by-a-newer-run) and to resolve `workflow` rules.
 
 Note: GitHub rulesets only support AND across required checks (no OR / conditional logic), so this action is the place where "all of these checks across workflows must pass" is expressed as a single check.
 
@@ -104,7 +104,7 @@ Choose based on whether your repository accepts external fork PRs.
 | ----------------------------- | ---------------------------------- | ---------------------- |
 | `pull_request_review` trigger | yes                                | no                     |
 | Job `name:`                   | (default)                          | matches required check |
-| Permissions                   | `statuses: write` + `checks: read` (+ `actions: read` for `workflow` rules) | `checks: read` (+ `actions: read` for `workflow` rules) |
+| Permissions                   | `statuses: write` + `checks: read` + `actions: read` | `checks: read` + `actions: read` |
 | API write of aggregate        | yes (commit status)                | no (job exit code)     |
 | Skip on no merge intent       | yes (saves runner minutes)         | no (always polls)      |
 
@@ -206,7 +206,7 @@ Open Settings → General → Pull Requests and tick **Allow auto-merge**. Witho
 
 | name                    | required | default                     | description                                                                                                                                                                                                                                                                                                          |
 | ----------------------- | -------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gate-mode`             | **yes**  | (none)                      | `private` / `public`. `private` = action writes the aggregated commit status via the legacy Commit Status API (token needs `statuses: write` + `checks: read`). `public` = gate signal is the JOB's own check_run conclusion; the job's `name:` must match the required-check context (token can be `checks: read`). Either mode additionally needs `actions: read` when `ignore-checks` contains a `workflow` rule. |
+| `gate-mode`             | **yes**  | (none)                      | `private` / `public`. `private` = action writes the aggregated commit status via the legacy Commit Status API (token needs `statuses: write` + `checks: read`). `public` = gate signal is the JOB's own check_run conclusion; the job's `name:` must match the required-check context (token can be `checks: read`). Either mode also requires `actions: read` to recognise [cancelled runs replaced by a newer run](#cancelled-runs-replaced-by-a-newer-run) and to use `workflow` rules in `ignore-checks`. |
 | `context`               | no       | `automerge-gate/all-passed` | Aggregated commit status context. **`gate-mode: private` only** — must match the required check in your ruleset. Ignored when `gate-mode: public` (the job name is the signal).                                                                                                                                      |
 | `poll-interval-seconds` | no       | `30`                        | How often to re-fetch check status                                                                                                                                                                                                                                                                                   |
 | `ignore-checks`         | no       | `[]`                        | JSONC array of rules to exclude check_runs from aggregation. Each rule is `{ app?, workflow?, name? }`; fields are AND-evaluated and every field is a glob (`*` / `?`). See [Examples](#examples).                                                                                                                   |
@@ -320,6 +320,19 @@ The command covers **check_runs only** — the data source `ignore-checks` filte
 | `evaluated-checks`  | Number of check_runs after filters             |
 | `completed-checks`  | Number of completed check_runs after filters   |
 | `polled-iterations` | Number of polling iterations performed         |
+
+## Cancelled runs replaced by a newer run
+
+When two events arrive for one SHA (a bot pushes the same commit twice, a label is added right after a push, a webhook is re-delivered), GitHub starts each matching workflow twice. With `concurrency: cancel-in-progress: true`, the second run cancels the first, and the first run's jobs stay on the SHA as `cancelled` check_runs next to the new run's results. The Checks API's `filter=latest` only hides re-runs inside one check_suite, and each workflow run has its own check_suite, so both sets of results are returned.
+
+The gate lists the workflow runs for the SHA (`GET /repos/{owner}/{repo}/actions/runs?head_sha=...`) and ignores a `cancelled` check_run when its workflow run has a newer run with the same workflow file and the same event. No configuration is needed.
+
+- Only `cancelled` results are ignored. A job that failed in the older run still fails the gate.
+- The newest run of each workflow is always evaluated, so a run you cancel by hand, with no newer run, still fails the gate.
+- A `push` run and a `pull_request` run of the same workflow are treated as separate and never replace each other.
+- This needs `actions: read`. When the token cannot list workflow runs, the gate fails with an error that names the missing permission.
+
+The cases used to verify this on real GitHub are listed in [docs/e2e-test-cases.md](docs/e2e-test-cases.md).
 
 ## Limitations
 

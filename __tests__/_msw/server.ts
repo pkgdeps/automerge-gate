@@ -45,6 +45,9 @@ export const defaultHandlers = [
         user: { login: params.u as string }
       })
   ),
+  http.get(`${BASE}/repos/:owner/:repo/actions/runs`, () =>
+    HttpResponse.json({ total_count: 0, workflow_runs: [] })
+  ),
   http.get(`${BASE}/repos/:owner/:repo/actions/runs/:id`, () =>
     HttpResponse.json({ path: '.github/workflows/other.yml' })
   )

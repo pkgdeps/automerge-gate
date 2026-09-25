@@ -24924,6 +24924,31 @@ var createWorkflowPathLookup = (octokit, owner, repo) => {
     }
   };
 };
+var MISSING_ACTIONS_READ_MESSAGE = "cannot list workflow runs for this SHA. automerge-gate requires `actions: read` in the job permissions.";
+var fetchWorkflowRuns = async (octokit, owner, repo, sha) => {
+  const listWorkflowRunsForRepo = octokit.rest.actions.listWorkflowRunsForRepo;
+  try {
+    const runs = await withRetry(
+      () => octokit.paginate(listWorkflowRunsForRepo, {
+        owner,
+        repo,
+        head_sha: sha,
+        per_page: 100
+      }),
+      { retries: 3, baseDelayMs: 500 }
+    );
+    return runs.map((r) => ({
+      id: r.id,
+      path: r.path,
+      event: r.event,
+      check_suite_id: r.check_suite_id
+    }));
+  } catch (err) {
+    const status = err.status;
+    if (status !== void 0 && status < 500) return null;
+    throw err;
+  }
+};
 var withRetry = async (fn, options) => {
   let lastErr;
   for (let attempt = 0; attempt <= options.retries; attempt++) {
@@ -24939,6 +24964,33 @@ var withRetry = async (fn, options) => {
     }
   }
   throw lastErr;
+};
+
+// src/replaced-runs.ts
+var findReplacedSuites = (workflowRuns) => {
+  const newest = /* @__PURE__ */ new Map();
+  const key = (r) => JSON.stringify([r.path, r.event]);
+  for (const r of workflowRuns) {
+    const current = newest.get(key(r));
+    if (current === void 0 || r.id > current) newest.set(key(r), r.id);
+  }
+  const replaced = /* @__PURE__ */ new Set();
+  for (const r of workflowRuns) {
+    if (newest.get(key(r)) !== r.id) replaced.add(r.check_suite_id);
+  }
+  return replaced;
+};
+var dropReplacedCancellations = (runs, replacedSuites) => {
+  const kept = [];
+  const dropped = [];
+  for (const r of runs) {
+    if (r.conclusion === "cancelled" && replacedSuites.has(r.suite_id)) {
+      dropped.push(r);
+    } else {
+      kept.push(r);
+    }
+  }
+  return { kept, dropped };
 };
 
 // src/filter.ts
@@ -25376,11 +25428,25 @@ var runPrivate = async (deps, inputs) => {
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef);
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo);
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
+  const reportedDropped = /* @__PURE__ */ new Set();
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(octokit, owner, repo, sha);
       lastTotal = allRuns.length;
-      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(allRuns, lookupWorkflowPath) : allRuns;
+      const workflowRuns = await fetchWorkflowRuns(octokit, owner, repo, sha);
+      if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE);
+      const replaced = dropReplacedCancellations(
+        allRuns,
+        findReplacedSuites(workflowRuns)
+      );
+      for (const r of replaced.dropped) {
+        if (reportedDropped.has(r.id)) continue;
+        reportedDropped.add(r.id);
+        core3.info(
+          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+        );
+      }
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath) : replaced.kept;
       const afterFilters = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         afterFilters,
@@ -25397,6 +25463,16 @@ var runPrivate = async (deps, inputs) => {
       throw err;
     }
   };
+  const workflowRunsProbe = await fetchWorkflowRuns(
+    octokit,
+    owner,
+    repo,
+    sha
+  ).catch(() => void 0);
+  if (workflowRunsProbe === null) {
+    core3.setFailed(MISSING_ACTIONS_READ_MESSAGE);
+    return;
+  }
   const pollStartedAt = Date.now();
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
@@ -25475,6 +25551,7 @@ var runPublic = async (deps, inputs) => {
     context2.repo
   );
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
+  const reportedDropped = /* @__PURE__ */ new Set();
   const fetchRuns = async () => {
     try {
       const all = await fetchAllCheckRuns(
@@ -25484,7 +25561,25 @@ var runPublic = async (deps, inputs) => {
         sha
       );
       lastTotal = all.length;
-      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(all, lookupWorkflowPath) : all;
+      const workflowRuns = await fetchWorkflowRuns(
+        octokit,
+        context2.owner,
+        context2.repo,
+        sha
+      );
+      if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE);
+      const replaced = dropReplacedCancellations(
+        all,
+        findReplacedSuites(workflowRuns)
+      );
+      for (const r of replaced.dropped) {
+        if (reportedDropped.has(r.id)) continue;
+        reportedDropped.add(r.id);
+        core4.info(
+          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+        );
+      }
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath) : replaced.kept;
       const filtered = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         filtered,
@@ -25501,6 +25596,16 @@ var runPublic = async (deps, inputs) => {
       throw err;
     }
   };
+  const workflowRunsProbe = await fetchWorkflowRuns(
+    octokit,
+    context2.owner,
+    context2.repo,
+    sha
+  ).catch(() => void 0);
+  if (workflowRunsProbe === null) {
+    core4.setFailed(MISSING_ACTIONS_READ_MESSAGE);
+    return;
+  }
   const pollStartedAt = Date.now();
   const result = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,

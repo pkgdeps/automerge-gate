@@ -1,7 +1,16 @@
 import * as core from '@actions/core'
 import type { ParsedInputs } from './inputs.js'
 import type { RunDeps } from './run-deps.js'
-import { fetchAllCheckRuns, createWorkflowPathLookup } from './api.js'
+import {
+  fetchAllCheckRuns,
+  fetchWorkflowRuns,
+  MISSING_ACTIONS_READ_MESSAGE,
+  createWorkflowPathLookup
+} from './api.js'
+import {
+  dropReplacedCancellations,
+  findReplacedSuites
+} from './replaced-runs.js'
 import {
   applyFilters,
   hasWorkflowRule,
@@ -40,6 +49,8 @@ export const runPublic = async (
 
   const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks)
 
+  const reportedDropped = new Set<number>()
+
   const fetchRuns = async () => {
     try {
       const all = await fetchAllCheckRuns(
@@ -49,9 +60,27 @@ export const runPublic = async (
         sha
       )
       lastTotal = all.length
+      const workflowRuns = await fetchWorkflowRuns(
+        octokit,
+        context.owner,
+        context.repo,
+        sha
+      )
+      if (workflowRuns === null) throw new Error(MISSING_ACTIONS_READ_MESSAGE)
+      const replaced = dropReplacedCancellations(
+        all,
+        findReplacedSuites(workflowRuns)
+      )
+      for (const r of replaced.dropped) {
+        if (reportedDropped.has(r.id)) continue
+        reportedDropped.add(r.id)
+        core.info(
+          `ignoring ${r.name} (cancelled): a newer run of the same workflow replaced it`
+        )
+      }
       const enriched = needsWorkflowPath
-        ? await resolveWorkflowPaths(all, lookupWorkflowPath)
-        : all
+        ? await resolveWorkflowPaths(replaced.kept, lookupWorkflowPath)
+        : replaced.kept
       const filtered = applyFilters(enriched, inputs.ignoreChecks)
       const afterSelf = await excludeOwnWorkflowRuns(
         filtered,
@@ -67,6 +96,20 @@ export const runPublic = async (
       core.warning(`API fetch failed during polling (will retry): ${message}`)
       throw err
     }
+  }
+
+  // Fail fast when the token cannot list workflow runs: without them the
+  // gate cannot tell a replaced run's cancellation from a real one, and
+  // polling would otherwise retry the permission error until timeout.
+  const workflowRunsProbe = await fetchWorkflowRuns(
+    octokit,
+    context.owner,
+    context.repo,
+    sha
+  ).catch(() => undefined)
+  if (workflowRunsProbe === null) {
+    core.setFailed(MISSING_ACTIONS_READ_MESSAGE)
+    return
   }
 
   const pollStartedAt = Date.now()

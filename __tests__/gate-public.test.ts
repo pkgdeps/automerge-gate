@@ -183,4 +183,109 @@ describe('runPublic', () => {
     expect(setFailedSpy).toHaveBeenCalledTimes(1)
     expect(String(setFailedSpy.mock.calls[0][0])).toContain('failure')
   })
+  describe('cancelled runs replaced by a newer run of the same workflow', () => {
+    // Mirrors pkgdeps/automerge-gate-example#44: two pull_request events
+    // on one SHA, cancel-in-progress cancelled the first run (suite 10).
+    const useReplacedRun = (workflowRuns: () => Response) => {
+      server.use(
+        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () =>
+          HttpResponse.json({
+            total_count: 2,
+            check_suites: [
+              { id: 10, app: { slug: 'github-actions' }, status: 'completed' },
+              { id: 20, app: { slug: 'github-actions' }, status: 'completed' }
+            ]
+          })
+        ),
+        http.get(
+          `${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`,
+          ({ params }) => {
+            const replaced = params.id === '10'
+            const conclusion = replaced ? 'cancelled' : 'success'
+            const base = replaced ? 1 : 3
+            return HttpResponse.json({
+              total_count: 2,
+              check_runs: [
+                {
+                  id: base,
+                  name: 'slow',
+                  status: 'completed',
+                  conclusion,
+                  details_url: ''
+                },
+                {
+                  id: base + 1,
+                  name: 'after',
+                  status: 'completed',
+                  conclusion,
+                  details_url: ''
+                }
+              ]
+            })
+          }
+        ),
+        http.get(`${BASE}/repos/:owner/:repo/actions/runs`, workflowRuns)
+      )
+    }
+
+    it('ignores the cancelled jobs → success', async () => {
+      const setFailedSpy = vi
+        .spyOn(core, 'setFailed')
+        .mockImplementation(() => {})
+      const outputs: Record<string, string> = {}
+      vi.spyOn(core, 'setOutput').mockImplementation((k, v) => {
+        outputs[k] = String(v)
+      })
+      useReplacedRun(() =>
+        HttpResponse.json({
+          total_count: 2,
+          workflow_runs: [
+            {
+              id: 101,
+              path: '.github/workflows/probe.yml',
+              event: 'pull_request',
+              check_suite_id: 10
+            },
+            {
+              id: 102,
+              path: '.github/workflows/probe.yml',
+              event: 'pull_request',
+              check_suite_id: 20
+            }
+          ]
+        })
+      )
+
+      await runPublic(buildDeps(), buildInputs({ gateMode: 'public' }))
+
+      expect(setFailedSpy).not.toHaveBeenCalled()
+      expect(outputs['state']).toBe('success')
+      expect(outputs['evaluated-checks']).toBe('2')
+    })
+
+    it('without actions: read → fails before polling', async () => {
+      const setFailedSpy = vi
+        .spyOn(core, 'setFailed')
+        .mockImplementation(() => {})
+      let suitesCalls = 0
+      useReplacedRun(() =>
+        HttpResponse.json(
+          { message: 'Resource not accessible by integration' },
+          { status: 403 }
+        )
+      )
+      server.use(
+        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () => {
+          suitesCalls++
+          return HttpResponse.json({ total_count: 0, check_suites: [] })
+        })
+      )
+
+      await runPublic(buildDeps(), buildInputs({ gateMode: 'public' }))
+
+      expect(setFailedSpy).toHaveBeenCalledTimes(1)
+      expect(String(setFailedSpy.mock.calls[0][0])).toContain('actions: read')
+      expect(suitesCalls).toBe(0)
+    })
+  })
 })

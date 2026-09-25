@@ -82,7 +82,7 @@ jobs:
       statuses: write # private mode writes the aggregate as a commit status
       checks: read
       pull-requests: read
-      actions: read # only needed if ignore-checks uses a `workflow` rule
+      actions: read # ignores cancelled runs replaced by a newer run; also used by `workflow` rules
     steps:
       - uses: pkgdeps/automerge-gate@v4.1.0
         with:
