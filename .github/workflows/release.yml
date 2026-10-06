@@ -1,0 +1,47 @@
+name: release
+
+# Publishes the GitHub Release when a release PR opened by
+# create-release-pr.yml is merged. The PR body becomes the release notes.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  release:
+    if: >-
+      github.event.pull_request.merged
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && startsWith(github.event.pull_request.head.ref, 'release/v')
+      && contains(github.event.pull_request.labels.*.name, 'Type: Release')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Create release
+        run: |
+          version="${HEAD_REF#release/}"
+          if ! [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$HEAD_REF does not name a vX.Y.Z version"
+            exit 1
+          fi
+          if gh release view "$version" > /dev/null 2>&1; then
+            echo "::notice::Release $version already exists"
+            exit 0
+          fi
+          notes="${RUNNER_TEMP}/notes.md"
+          printenv PR_BODY > "$notes"
+          gh release create "$version" \
+            --target "$MERGE_SHA" \
+            --title "$version" \
+            --notes-file "$notes" \
+            --latest
