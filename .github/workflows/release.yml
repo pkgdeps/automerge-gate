@@ -47,5 +47,5 @@ jobs:
             --title "$version" \
             --notes-file "$notes" \
             --latest
-          url=$(gh release view "$version" --json url --jq .url)
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${version}"
           gh pr comment "$PR_NUMBER" --body "Released [${version}](${url})"
