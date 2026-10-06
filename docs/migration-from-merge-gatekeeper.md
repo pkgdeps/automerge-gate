@@ -84,7 +84,7 @@ jobs:
       pull-requests: read
       actions: read # ignores cancelled runs replaced by a newer run; also used by `workflow` rules
     steps:
-      - uses: pkgdeps/automerge-gate@v5.0.4
+      - uses: pkgdeps/automerge-gate@v5.0.5
         with:
           gate-mode: 'private'
           context: 'automerge-gate/all-passed'

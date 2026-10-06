@@ -139,7 +139,7 @@ jobs:
       pull-requests: read
       actions: read
     steps:
-      - uses: pkgdeps/automerge-gate@v5.0.4
+      - uses: pkgdeps/automerge-gate@v5.0.5
         with:
           gate-mode: 'private'
           context: 'automerge-gate/all-passed'
@@ -172,7 +172,7 @@ jobs:
       pull-requests: read
       actions: read
     steps:
-      - uses: pkgdeps/automerge-gate@v5.0.4
+      - uses: pkgdeps/automerge-gate@v5.0.5
         with:
           gate-mode: 'public'
 ```
@@ -305,7 +305,7 @@ The command covers **check_runs only** — the data source `ignore-checks` filte
 #### Tune polling interval for fast CI
 
 ```yaml
-- uses: pkgdeps/automerge-gate@v5.0.4
+- uses: pkgdeps/automerge-gate@v5.0.5
   with:
     gate-mode: 'private'
     poll-interval-seconds: '10'
