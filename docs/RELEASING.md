@@ -1,6 +1,6 @@
 # Releasing (maintainers)
 
-This document is the maintainer release procedure for automerge-gate. All releases are cut from the GitHub web UI. There is no release script and no `npm publish` step.
+This document is the maintainer release procedure for automerge-gate. Releases are cut by two workflows: `create-release-pr` opens a release PR, and `release` publishes the GitHub Release when that PR is merged. There is no `npm publish` step.
 
 ## Pre-release checklist
 
@@ -13,19 +13,14 @@ This document is the maintainer release procedure for automerge-gate. All releas
 
 ## Cutting a release
 
-1. Go to **Releases → Draft a new release**.
-2. **Choose a tag**: type the new version (e.g. `v3.0.0`) and select *Create new tag on publish*.
-3. **Target**: `main`.
-4. **Release title**: same as the tag (e.g. `v3.0.0`).
-5. Click **Generate release notes** to autopopulate from PRs / commits since the last tag.
-6. **Set as the latest release**: tick the box.
-7. **Mark as an immutable release** (Public Preview): tick if the option is shown — locks the tag and asset checksums so they cannot be silently rewritten later.
-8. **Publish to GitHub Marketplace**: tick on the **first** release only. Subsequent releases auto-update the existing Marketplace listing.
-9. Click **Publish release**.
+1. Go to **Actions → create-release-pr → Run workflow** and pick `patch`, `minor` or `major`.
+2. The workflow computes the next version from the latest release, opens a draft PR `Release vX.Y.Z` from `release/vX.Y.Z` with the `Type: Release` label, and points the `uses: pkgdeps/automerge-gate@vX.Y.Z` examples in `README.md` and `docs/migration-from-merge-gatekeeper.md` at the new version. The PR body holds the generated release notes; edit them there if needed.
+3. Mark the PR ready for review and approve it. A PR opened by `GITHUB_TOKEN` does not start `pull_request` workflows, so the approval is what runs `automerge-gate/self-test`.
+4. Merge the PR. The `release` workflow creates the tag and the GitHub Release on the merge commit, using the PR body as the release notes, and marks it as the latest release.
+
+The repository needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** turned on for step 2.
 
 ## After publishing
-
-The `update-readme-version` workflow opens a PR that points the `uses: pkgdeps/automerge-gate@vX.Y.Z` examples in `README.md` and `docs/migration-from-merge-gatekeeper.md` at the new tag. Approve it so `automerge-gate/self-test` runs (a PR opened by `GITHUB_TOKEN` does not start `pull_request` workflows), then merge it. This needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**.
 
 Users pin a fixed version: `uses: pkgdeps/automerge-gate@v3.0.0`. Renovate / Dependabot will open update PRs as new versions ship.
 

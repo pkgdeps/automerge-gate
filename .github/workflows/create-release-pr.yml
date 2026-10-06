@@ -1,0 +1,74 @@
+name: create-release-pr
+
+# Opens a release PR that points the `uses: pkgdeps/automerge-gate@vX.Y.Z`
+# examples at the next version. Merging the PR runs release.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      semver:
+        description: 'Version bump'
+        required: true
+        type: choice
+        options: [patch, minor, major]
+
+permissions: {}
+
+jobs:
+  create-release-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      SEMVER: ${{ inputs.semver }}
+      BASE: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Compute next version
+        id: version
+        run: |
+          current=$(gh release view --json tagName --jq .tagName)
+          if ! [[ "$current" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Latest release $current is not a vX.Y.Z tag"
+            exit 1
+          fi
+          major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
+          case "$SEMVER" in
+            major) next="v$((major + 1)).0.0" ;;
+            minor) next="v${major}.$((minor + 1)).0" ;;
+            patch) next="v${major}.${minor}.$((patch + 1))" ;;
+          esac
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+      - name: Update version references
+        env:
+          NEXT: ${{ steps.version.outputs.next }}
+        run: |
+          sed -i -E "s#(pkgdeps/automerge-gate@)v[0-9]+\.[0-9]+\.[0-9]+#\1${NEXT}#g" \
+            README.md docs/migration-from-merge-gatekeeper.md
+      - name: Open release PR
+        env:
+          CURRENT: ${{ steps.version.outputs.current }}
+          NEXT: ${{ steps.version.outputs.next }}
+        run: |
+          branch="release/${NEXT}"
+          notes="${RUNNER_TEMP}/notes.md"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="$NEXT" -f target_commitish="$BASE" -f previous_tag_name="$CURRENT" \
+            --jq .body > "$notes"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -a --allow-empty -m "chore(release): ${NEXT}"
+          git push origin "$branch"
+          gh pr create \
+            --draft \
+            --base "$BASE" \
+            --head "$branch" \
+            --title "Release ${NEXT}" \
+            --label "Type: Release" \
+            --body-file "$notes"
