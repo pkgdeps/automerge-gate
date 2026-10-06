@@ -25,6 +25,8 @@ This document is the maintainer release procedure for automerge-gate. All releas
 
 ## After publishing
 
+The `update-readme-version` workflow opens a PR that points the `uses: pkgdeps/automerge-gate@vX.Y.Z` examples in `README.md` and `docs/migration-from-merge-gatekeeper.md` at the new tag. Approve it so `automerge-gate/self-test` runs (a PR opened by `GITHUB_TOKEN` does not start `pull_request` workflows), then merge it. This needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**.
+
 Users pin a fixed version: `uses: pkgdeps/automerge-gate@v3.0.0`. Renovate / Dependabot will open update PRs as new versions ship.
 
 ---
