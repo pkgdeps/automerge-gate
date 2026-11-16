@@ -23,16 +23,16 @@ describe('runPublic', () => {
     vi.restoreAllMocks()
   })
 
-  it('any event → polling runs (suites endpoint hit), no POST/PATCH to check-runs', async () => {
-    const suitesCalls: string[] = []
+  it('any event → polling runs (check-runs endpoint hit), no POST/PATCH to check-runs', async () => {
+    const checkRunsCalls: string[] = []
     const postBodies: Array<Record<string, unknown>> = []
     const patchIds: number[] = []
     server.use(
       http.get(
-        `${BASE}/repos/:owner/:repo/commits/:sha/check-suites`,
+        `${BASE}/repos/:owner/:repo/commits/:sha/check-runs`,
         ({ params }) => {
-          suitesCalls.push(params.sha as string)
-          return HttpResponse.json({ total_count: 0, check_suites: [] })
+          checkRunsCalls.push(params.sha as string)
+          return HttpResponse.json({ total_count: 0, check_runs: [] })
         }
       ),
       http.post(
@@ -62,9 +62,9 @@ describe('runPublic', () => {
 
     await runPublic(deps, buildInputs({ gateMode: 'public' }))
 
-    // Polling reached the suites endpoint at least once.
-    expect(suitesCalls.length).toBeGreaterThanOrEqual(1)
-    expect(suitesCalls[0]).toBe('sha-head')
+    // Polling reached the check-runs endpoint at least once.
+    expect(checkRunsCalls.length).toBeGreaterThanOrEqual(1)
+    expect(checkRunsCalls[0]).toBe('sha-head')
     // runPublic never writes its own check_run.
     expect(postBodies).toHaveLength(0)
     expect(patchIds).toHaveLength(0)
@@ -93,21 +93,15 @@ describe('runPublic', () => {
       .mockImplementation(() => {})
     const workflowLookups: number[] = []
     server.use(
-      http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () =>
-        HttpResponse.json({
-          total_count: 1,
-          check_suites: [
-            { id: 100, app: { slug: 'github-actions' }, status: 'completed' }
-          ]
-        })
-      ),
-      http.get(`${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`, () =>
+      http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-runs`, () =>
         HttpResponse.json({
           total_count: 2,
           check_runs: [
             {
               id: 1,
               name: 'lint',
+              app: { slug: 'github-actions' },
+              check_suite: { id: 100 },
               status: 'completed',
               conclusion: 'failure',
               details_url: 'https://github.com/o/r/actions/runs/1001/job/2001'
@@ -115,6 +109,8 @@ describe('runPublic', () => {
             {
               id: 2,
               name: 'lint',
+              app: { slug: 'github-actions' },
+              check_suite: { id: 100 },
               status: 'completed',
               conclusion: 'success',
               details_url: 'https://github.com/o/r/actions/runs/1002/job/2002'
@@ -153,21 +149,15 @@ describe('runPublic', () => {
       .spyOn(core, 'setFailed')
       .mockImplementation(() => {})
     server.use(
-      http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () =>
-        HttpResponse.json({
-          total_count: 1,
-          check_suites: [
-            { id: 7, app: { slug: 'github-actions' }, status: 'completed' }
-          ]
-        })
-      ),
-      http.get(`${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`, () =>
+      http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-runs`, () =>
         HttpResponse.json({
           total_count: 1,
           check_runs: [
             {
               id: 71,
               name: 'lint',
+              app: { slug: 'github-actions' },
+              check_suite: { id: 7 },
               status: 'completed',
               conclusion: 'failure',
               details_url: ''
@@ -192,42 +182,31 @@ describe('runPublic', () => {
     // on one SHA, cancel-in-progress cancelled the first run (suite 10).
     const useReplacedRun = (workflowRuns: () => Response) => {
       server.use(
-        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () =>
-          HttpResponse.json({
-            total_count: 2,
-            check_suites: [
-              { id: 10, app: { slug: 'github-actions' }, status: 'completed' },
-              { id: 20, app: { slug: 'github-actions' }, status: 'completed' }
+        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-runs`, () => {
+          const run = (
+            id: number,
+            name: string,
+            suiteId: number,
+            conclusion: string
+          ) => ({
+            id,
+            name,
+            app: { slug: 'github-actions' },
+            check_suite: { id: suiteId },
+            status: 'completed',
+            conclusion,
+            details_url: ''
+          })
+          return HttpResponse.json({
+            total_count: 4,
+            check_runs: [
+              run(1, 'slow', 10, 'cancelled'),
+              run(2, 'after', 10, 'cancelled'),
+              run(3, 'slow', 20, 'success'),
+              run(4, 'after', 20, 'success')
             ]
           })
-        ),
-        http.get(
-          `${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`,
-          ({ params }) => {
-            const replaced = params.id === '10'
-            const conclusion = replaced ? 'cancelled' : 'success'
-            const base = replaced ? 1 : 3
-            return HttpResponse.json({
-              total_count: 2,
-              check_runs: [
-                {
-                  id: base,
-                  name: 'slow',
-                  status: 'completed',
-                  conclusion,
-                  details_url: ''
-                },
-                {
-                  id: base + 1,
-                  name: 'after',
-                  status: 'completed',
-                  conclusion,
-                  details_url: ''
-                }
-              ]
-            })
-          }
-        ),
+        }),
         http.get(`${BASE}/repos/:owner/:repo/actions/runs`, workflowRuns)
       )
     }
@@ -281,39 +260,26 @@ describe('runPublic', () => {
       // Poll 2: its jobs exist and one of them failed.
       let polls = 0
       server.use(
-        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () => {
+        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-runs`, () => {
           polls++
-          const suites = [
-            { id: 10, app: { slug: 'github-actions' }, status: 'completed' }
-          ]
+          const run = (id: number, suiteId: number, conclusion: string) => ({
+            id,
+            name: 'slow',
+            app: { slug: 'github-actions' },
+            check_suite: { id: suiteId },
+            status: 'completed',
+            conclusion,
+            details_url: ''
+          })
+          const runs = [run(1, 10, 'cancelled')]
           if (polls > 1) {
-            suites.push({
-              id: 20,
-              app: { slug: 'github-actions' },
-              status: 'completed'
-            })
+            runs.push(run(2, 20, 'failure'))
           }
           return HttpResponse.json({
-            total_count: suites.length,
-            check_suites: suites
+            total_count: runs.length,
+            check_runs: runs
           })
         }),
-        http.get(
-          `${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`,
-          ({ params }) =>
-            HttpResponse.json({
-              total_count: 1,
-              check_runs: [
-                {
-                  id: params.id === '10' ? 1 : 2,
-                  name: 'slow',
-                  status: 'completed',
-                  conclusion: params.id === '10' ? 'cancelled' : 'failure',
-                  details_url: ''
-                }
-              ]
-            })
-        ),
         http.get(`${BASE}/repos/:owner/:repo/actions/runs`, () =>
           HttpResponse.json({
             total_count: 2,
@@ -409,7 +375,7 @@ describe('runPublic', () => {
       const setFailedSpy = vi
         .spyOn(core, 'setFailed')
         .mockImplementation(() => {})
-      let suitesCalls = 0
+      let checkRunsCalls = 0
       useReplacedRun(() =>
         HttpResponse.json(
           { message: 'Resource not accessible by integration' },
@@ -417,9 +383,9 @@ describe('runPublic', () => {
         )
       )
       server.use(
-        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () => {
-          suitesCalls++
-          return HttpResponse.json({ total_count: 0, check_suites: [] })
+        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-runs`, () => {
+          checkRunsCalls++
+          return HttpResponse.json({ total_count: 0, check_runs: [] })
         })
       )
 
@@ -427,7 +393,7 @@ describe('runPublic', () => {
 
       expect(setFailedSpy).toHaveBeenCalledTimes(1)
       expect(String(setFailedSpy.mock.calls[0][0])).toContain('actions: read')
-      expect(suitesCalls).toBe(0)
+      expect(checkRunsCalls).toBe(0)
     })
   })
 })

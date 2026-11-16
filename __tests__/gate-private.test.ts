@@ -210,21 +210,15 @@ describe('runPrivate', () => {
     // the gate's orchestration.
     const workflowLookups: number[] = []
     server.use(
-      http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () =>
-        HttpResponse.json({
-          total_count: 1,
-          check_suites: [
-            { id: 100, app: { slug: 'github-actions' }, status: 'completed' }
-          ]
-        })
-      ),
-      http.get(`${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`, () =>
+      http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-runs`, () =>
         HttpResponse.json({
           total_count: 2,
           check_runs: [
             {
               id: 1,
               name: 'lint',
+              app: { slug: 'github-actions' },
+              check_suite: { id: 100 },
               status: 'completed',
               conclusion: 'failure',
               details_url: 'https://github.com/o/r/actions/runs/1001/job/2001'
@@ -232,6 +226,8 @@ describe('runPrivate', () => {
             {
               id: 2,
               name: 'lint',
+              app: { slug: 'github-actions' },
+              check_suite: { id: 100 },
               status: 'completed',
               conclusion: 'success',
               details_url: 'https://github.com/o/r/actions/runs/1002/job/2002'

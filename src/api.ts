@@ -1,18 +1,14 @@
 import type { AggregatedCheckRun } from './filter.js'
 import type { WorkflowRunSummary } from './replaced-runs.js'
 
-type CheckSuiteData = {
-  id: number
-  app: { slug: string } | null
-  status: string
-}
-
 type CheckRunData = {
   id: number
   name: string
   status: string
   conclusion: string | null
   details_url: string
+  app: { slug: string } | null
+  check_suite: { id: number } | null
 }
 
 export type ReviewListItem = {
@@ -39,16 +35,11 @@ export type CreateCommitStatusParams = {
 export type OctokitLike = {
   rest: {
     checks: {
-      listSuitesForRef: (params: {
+      listForRef: (params: {
         owner: string
         repo: string
         ref: string
-        per_page?: number
-      }) => Promise<{ data: { check_suites: CheckSuiteData[] } }>
-      listForSuite: (params: {
-        owner: string
-        repo: string
-        check_suite_id: number
+        filter?: 'latest' | 'all'
         per_page?: number
       }) => Promise<{ data: { check_runs: CheckRunData[] } }>
     }
@@ -80,49 +71,39 @@ export type OctokitLike = {
   ) => Promise<T[]>
 }
 
-// Lists every check_suite for the given SHA and expands their check_runs into
-// a flat AggregatedCheckRun[]. The suite-level app.slug is propagated onto
-// each run so downstream filters (filter.ts) can decide based on the
-// originating GitHub App.
+// Lists the latest check_runs for the given SHA as a flat
+// AggregatedCheckRun[]. One paginated call covers every check_suite, so the
+// cost per poll does not grow with the number of suites. `filter: 'latest'`
+// keeps only the newest attempt of each check_run, the same set the
+// per-suite endpoint returns. The run's app.slug is kept so downstream
+// filters (filter.ts) can decide based on the originating GitHub App.
 export const fetchAllCheckRuns = async (
   octokit: OctokitLike,
   owner: string,
   repo: string,
   sha: string
 ): Promise<AggregatedCheckRun[]> => {
-  const suites = await withRetry(
+  const checkRuns = await withRetry(
     () =>
-      octokit.paginate<CheckSuiteData>(
-        octokit.rest.checks.listSuitesForRef as never,
-        { owner, repo, ref: sha, per_page: 100 }
-      ),
+      octokit.paginate<CheckRunData>(octokit.rest.checks.listForRef as never, {
+        owner,
+        repo,
+        ref: sha,
+        filter: 'latest',
+        per_page: 100
+      }),
     { retries: 3, baseDelayMs: 500 }
   )
 
-  const runs: AggregatedCheckRun[] = []
-  for (const suite of suites) {
-    const slug = suite.app?.slug ?? 'unknown'
-    const suiteRuns = await withRetry(
-      () =>
-        octokit.paginate<CheckRunData>(
-          octokit.rest.checks.listForSuite as never,
-          { owner, repo, check_suite_id: suite.id, per_page: 100 }
-        ),
-      { retries: 3, baseDelayMs: 500 }
-    )
-    for (const r of suiteRuns) {
-      runs.push({
-        id: r.id,
-        name: r.name,
-        status: r.status,
-        conclusion: r.conclusion,
-        details_url: r.details_url,
-        app: { slug },
-        suite_id: suite.id
-      })
-    }
-  }
-  return runs
+  return checkRuns.map((r) => ({
+    id: r.id,
+    name: r.name,
+    status: r.status,
+    conclusion: r.conclusion,
+    details_url: r.details_url,
+    app: { slug: r.app?.slug ?? 'unknown' },
+    suite_id: r.check_suite?.id ?? 0
+  }))
 }
 
 // Returns a memoizing lookup for an actions run's workflow path. Used by

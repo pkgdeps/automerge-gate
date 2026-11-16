@@ -2,74 +2,78 @@ import { describe, it, expect, vi } from 'vitest'
 import { fetchAllCheckRuns, withRetry, type OctokitLike } from '../src/api.js'
 
 describe('fetchAllCheckRuns', () => {
-  it('fetches suites and flattens runs across pages', async () => {
-    const listSuites = vi.fn()
-    const listForSuite = vi.fn(
-      async ({ check_suite_id }: { check_suite_id: number }) => ({
-        data: {
-          check_runs: [
-            {
-              id: check_suite_id * 10,
-              name: `suite-${check_suite_id}-run`,
-              status: 'completed',
-              conclusion: 'success',
-              details_url: ''
-            }
-          ]
-        }
-      })
-    )
+  const paginateRuns = async (fn: unknown, params: unknown) => {
+    const res = await (fn as (p: unknown) => Promise<{ data: unknown }>)(params)
+    return (res as { data: { check_runs: unknown[] } }).data.check_runs
+  }
 
-    const octokit: OctokitLike = {
-      rest: {
-        checks: {
-          listSuitesForRef: listSuites,
-          listForSuite
-        },
-        repos: {
-          createCommitStatus: vi.fn()
-        }
-      },
-      paginate: async (fn: unknown, params: unknown) => {
-        const res = await (fn as (p: unknown) => Promise<{ data: unknown }>)(
-          params
-        )
-        const data = (
-          res as {
-            data: { check_suites?: unknown[]; check_runs?: unknown[] }
-          }
-        ).data
-        if (data.check_suites !== undefined) return data.check_suites
-        if (data.check_runs !== undefined) return data.check_runs
-        return []
-      }
-    } as unknown as OctokitLike
-
-    listSuites.mockResolvedValueOnce({
+  it('lists the latest check runs for the ref in one paginated call', async () => {
+    const listForRef = vi.fn().mockResolvedValue({
       data: {
-        check_suites: [
-          { id: 1, app: { slug: 'github-actions' }, status: 'completed' },
-          { id: 2, app: { slug: 'cloudflare-pages' }, status: 'completed' }
+        check_runs: [
+          {
+            id: 10,
+            name: 'lint',
+            status: 'completed',
+            conclusion: 'success',
+            details_url: '',
+            app: { slug: 'github-actions' },
+            check_suite: { id: 1 }
+          },
+          {
+            id: 20,
+            name: 'deploy',
+            status: 'completed',
+            conclusion: 'success',
+            details_url: '',
+            app: { slug: 'cloudflare-pages' },
+            check_suite: { id: 2 }
+          }
         ]
       }
     })
+    const octokit = {
+      rest: { checks: { listForRef }, repos: { createCommitStatus: vi.fn() } },
+      paginate: vi.fn(paginateRuns)
+    } as unknown as OctokitLike
 
     const result = await fetchAllCheckRuns(octokit, 'owner', 'repo', 'abc')
-    expect(result).toHaveLength(2)
-    expect(result[0].suite_id).toBe(1)
-    expect(result[1].suite_id).toBe(2)
-    expect(result[0].app.slug).toBe('github-actions')
-    expect(result[1].app.slug).toBe('cloudflare-pages')
+
+    expect(octokit.paginate).toHaveBeenCalledTimes(1)
+    expect(listForRef).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      ref: 'abc',
+      filter: 'latest',
+      per_page: 100
+    })
+    expect(result).toEqual([
+      {
+        id: 10,
+        name: 'lint',
+        status: 'completed',
+        conclusion: 'success',
+        details_url: '',
+        app: { slug: 'github-actions' },
+        suite_id: 1
+      },
+      {
+        id: 20,
+        name: 'deploy',
+        status: 'completed',
+        conclusion: 'success',
+        details_url: '',
+        app: { slug: 'cloudflare-pages' },
+        suite_id: 2
+      }
+    ])
   })
 
-  it('treats null suite app as "unknown" slug', async () => {
-    const octokit: OctokitLike = {
+  it('treats null app as "unknown" slug', async () => {
+    const octokit = {
       rest: {
         checks: {
-          listSuitesForRef: vi.fn().mockResolvedValueOnce({
-            data: { check_suites: [{ id: 1, app: null, status: 'completed' }] }
-          }),
-          listForSuite: vi.fn().mockResolvedValueOnce({
+          listForRef: vi.fn().mockResolvedValue({
             data: {
               check_runs: [
                 {
@@ -77,7 +81,9 @@ describe('fetchAllCheckRuns', () => {
                   name: 'r',
                   status: 'completed',
                   conclusion: 'success',
-                  details_url: ''
+                  details_url: '',
+                  app: null,
+                  check_suite: { id: 1 }
                 }
               ]
             }
@@ -85,15 +91,7 @@ describe('fetchAllCheckRuns', () => {
         },
         repos: { createCommitStatus: vi.fn() }
       },
-      paginate: async (fn: unknown, params: unknown) => {
-        const res = await (fn as (p: unknown) => Promise<{ data: unknown }>)(
-          params
-        )
-        const d = (
-          res as { data: { check_suites?: unknown[]; check_runs?: unknown[] } }
-        ).data
-        return (d.check_suites ?? d.check_runs ?? []) as unknown[]
-      }
+      paginate: paginateRuns
     } as unknown as OctokitLike
 
     const result = await fetchAllCheckRuns(octokit, 'o', 'r', 'sha')
@@ -101,14 +99,7 @@ describe('fetchAllCheckRuns', () => {
   })
 
   it('retries on 5xx errors from paginate', async () => {
-    const listSuites = vi.fn().mockResolvedValue({
-      data: {
-        check_suites: [
-          { id: 1, app: { slug: 'github-actions' }, status: 'completed' }
-        ]
-      }
-    })
-    const listForSuite = vi.fn().mockResolvedValue({
+    const listForRef = vi.fn().mockResolvedValue({
       data: {
         check_runs: [
           {
@@ -116,48 +107,35 @@ describe('fetchAllCheckRuns', () => {
             name: 'r',
             status: 'completed',
             conclusion: 'success',
-            details_url: ''
+            details_url: '',
+            app: { slug: 'github-actions' },
+            check_suite: { id: 1 }
           }
         ]
       }
     })
 
     let paginateCalls = 0
-    const octokit: OctokitLike = {
-      rest: {
-        checks: {
-          listSuitesForRef: listSuites,
-          listForSuite
-        },
-        repos: { createCommitStatus: vi.fn() }
-      },
+    const octokit = {
+      rest: { checks: { listForRef }, repos: { createCommitStatus: vi.fn() } },
       paginate: async (fn: unknown, params: unknown) => {
         paginateCalls++
         if (paginateCalls === 1) {
           throw { status: 503 }
         }
-        const res = await (fn as (p: unknown) => Promise<{ data: unknown }>)(
-          params
-        )
-        const data = (
-          res as { data: { check_suites?: unknown[]; check_runs?: unknown[] } }
-        ).data
-        return (data.check_suites ?? data.check_runs ?? []) as unknown[]
+        return paginateRuns(fn, params)
       }
     } as unknown as OctokitLike
 
     const result = await fetchAllCheckRuns(octokit, 'o', 'r', 'sha')
     expect(result).toHaveLength(1)
-    expect(paginateCalls).toBeGreaterThanOrEqual(2)
+    expect(paginateCalls).toBe(2)
   })
 
   it('does not retry on 4xx errors from paginate', async () => {
-    const octokit: OctokitLike = {
+    const octokit = {
       rest: {
-        checks: {
-          listSuitesForRef: vi.fn(),
-          listForSuite: vi.fn()
-        },
+        checks: { listForRef: vi.fn() },
         repos: { createCommitStatus: vi.fn() }
       },
       paginate: vi.fn().mockRejectedValue({ status: 404 })
