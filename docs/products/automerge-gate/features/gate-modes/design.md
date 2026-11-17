@@ -66,9 +66,13 @@ Looking up reviews on each new head commit, and not only on the review event, is
 
 ### Why a pull request in a stack polls without merge intent
 
+`poll-on-stacked-pull-requests` is a workaround, not a second kind of merge intent.
+It rests on a trial, not on documented GitHub behavior: at the time of the trial, auto-merge on a stack did not start workflows, and GitHub's documentation did not say whether that is intended or temporary.
+The trial is recorded in [the stacked pull request notes](../../../../lessons/2026-11-17-stacked-pr-auto-merge-event.md).
+If GitHub starts delivering `auto_merge_enabled` for pull requests in a stack, private mode's usual wait for merge intent works for stacks as well and the input is no longer needed.
+
 Private mode waits for an event that carries merge intent, and for a stack no such event arrives.
 Enabling auto-merge on a stack is recorded in each pull request's timeline, but GitHub delivers no `auto_merge_enabled` event to workflows, so the gate is never started and the required check stays at "Expected".
-The observation is recorded in [the stacked pull request notes](../../../../lessons/2026-11-17-stacked-pr-auto-merge-event.md).
 
 Because nothing starts the gate at the moment auto-merge is enabled, the verdict has to be on the head commit beforehand.
 With `poll-on-stacked-pull-requests` on, a pull request whose event carries a `stack` object therefore polls on every event that brings a new head commit and on `stacked`, the same way public mode does.

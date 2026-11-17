@@ -241,6 +241,8 @@ The rows are read from the top, and the first row that applies decides.
 
 ##### Pull requests in a stack
 
+The `poll-on-stacked-pull-requests` input is a workaround for stacks, where enabling auto-merge was observed not to start the gate. It exists only until GitHub delivers that event.
+
 A pull request is in a stack when the event's pull request carries a `stack` object.
 GitHub sets it from the `stacked` activity type onward; an `opened` event never carries it, because a pull request joins a stack after it is created.
 
@@ -359,3 +361,4 @@ The token is used only to read checks, workflow runs, reviews, and permissions, 
 ## Open questions
 
 - **Unconfirmed: merging a stack through auto-merge.** With `poll-on-stacked-pull-requests` on, every pull request in a stack got a `success` commit status and became mergeable in the trial, but merging the stack with auto-merge from GitHub's UI has not been observed to the end. azu decides whether to verify it.
+- **Unconfirmed: whether GitHub will deliver `auto_merge_enabled` for a stack.** The workaround assumes the event is not delivered, which was observed once on 2026-11-17. GitHub's documentation does not say whether this is intended or temporary. When the event is delivered, the input can be deprecated; nobody is assigned to re-check. azu decides when to re-check.

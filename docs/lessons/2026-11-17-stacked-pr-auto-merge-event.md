@@ -9,6 +9,9 @@ GitHub のスタック（stacked pull requests）に入っているプルリク�
 private mode は auto-merge の有効化をマージの意思として待つので、スタック内のプルリクエストでは必須チェックが「Expected」のまま残り、スタックをマージできない。
 
 届かないのがロールアウト途中だからなのか、仕様なのかを示す記述は見つかっていない。
+調査の時点で、GitHub Docs はスタックのプルリクエストでは auto-merge に対応していないとしており、スタックの auto-merge は順次提供中の機能だった（出典は下の #46 のコメント）。
+
+そのため `poll-on-stacked-pull-requests` は、この観察にもとづく回避策である。GitHub が `auto_merge_enabled` を届けるようになったら、この記録の観察をやり直し、入力が要るかを見直す。
 
 ## 観察した事実
 

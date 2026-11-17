@@ -315,6 +315,9 @@ The command covers **check_runs only** — the data source `ignore-checks` filte
 
 ## Stacked pull requests
 
+> [!NOTE]
+> `poll-on-stacked-pull-requests` is a workaround. It is based on an experiment (2026-11-17, [#46](https://github.com/pkgdeps/automerge-gate/issues/46)), not on documented GitHub behavior: auto-merge on a stack did not deliver `pull_request.auto_merge_enabled`. If GitHub starts delivering that event, private mode works for stacks without this input and the input may be deprecated.
+
 Private mode waits for merge intent before it polls. For a pull request in a [GitHub stack](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/merging-stacked-pull-requests), that signal never arrives: enabling auto-merge on a stack records `auto_merge_enabled` in the pull request timeline, but GitHub does not deliver the `pull_request.auto_merge_enabled` event to webhooks or to GitHub Actions (observed on 2026-11-17, see [#46](https://github.com/pkgdeps/automerge-gate/issues/46)). The required check stays at `Expected` and the stack cannot merge.
 
 Set `poll-on-stacked-pull-requests: 'true'` to make every pull request in a stack poll without waiting for merge intent, and add `stacked` to the workflow's activity types:
