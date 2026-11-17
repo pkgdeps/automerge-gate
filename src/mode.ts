@@ -7,6 +7,11 @@ type HeadShaAction = (typeof HEAD_SHA_ACTIONS)[number]
 export const isHeadShaAction = (a: string): a is HeadShaAction =>
   (HEAD_SHA_ACTIONS as readonly string[]).includes(a)
 
+// `pull_request` activity type sent when a PR joins a GitHub stack.
+// `opened` never carries `pull_request.stack`, so this is the first
+// event that tells the gate the PR is stacked.
+export const STACKED_ACTION = 'stacked'
+
 // Mutually exclusive modes the action can run in for a given event.
 //   polling — poll the Checks API and write the aggregated verdict.
 //   skip    — do nothing; required check stays "Expected" and blocks merge.
@@ -92,6 +97,14 @@ export type DetermineModeInput = {
    * on the single `pull_request_review.submitted` event.
    */
   isApproved: boolean
+  /**
+   * `true` when the `poll-stacked-pull-requests` input is on and the
+   * PR belongs to a GitHub stack (`pull_request.stack` is set).
+   * GitHub does not deliver `pull_request.auto_merge_enabled` for a
+   * stack, so the gate cannot wait for that signal and polls on every
+   * HEAD SHA event and on `stacked` instead.
+   */
+  isStackPolling: boolean
 }
 
 export type DetermineModeResult = {
@@ -122,6 +135,12 @@ export type DetermineModeResult = {
 //
 // All three lead to the same `polling` mode; the trigger differs but
 // the work is identical.
+//
+// A PR in a GitHub stack is the exception when the
+// `poll-stacked-pull-requests` input is on: enabling auto-merge on a
+// stack delivers no `auto_merge_enabled` event, so there is no signal
+// to wait for. Such a PR polls on every HEAD SHA event and on
+// `stacked` (the PR joined a stack), like `gate-mode: public` does.
 export const determineMode = (
   input: DetermineModeInput
 ): DetermineModeResult => {
@@ -131,7 +150,8 @@ export const determineMode = (
     reviewState,
     isHeadShaEvent,
     isAutoMergeAlreadyEnabled,
-    isApproved
+    isApproved,
+    isStackPolling
   } = input
   if (eventName === 'pull_request_review') {
     if (action !== 'submitted' || reviewState !== 'approved') {
@@ -162,6 +182,12 @@ export const determineMode = (
     return {
       mode: 'polling',
       reason: 'Enable auto-merge clicked (pull_request.auto_merge_enabled)'
+    }
+  }
+  if (isStackPolling && (isHeadShaEvent || action === STACKED_ACTION)) {
+    return {
+      mode: 'polling',
+      reason: `PR is in a stack and poll-stacked-pull-requests is on (action=${action}) — auto-merge on a stack sends no auto_merge_enabled event, so polling without waiting for merge intent`
     }
   }
   if (isHeadShaEvent) {

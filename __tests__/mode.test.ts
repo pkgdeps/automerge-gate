@@ -14,6 +14,7 @@ const input = (
   isHeadShaEvent: false,
   isAutoMergeAlreadyEnabled: false,
   isApproved: false,
+  isStackPolling: false,
   ...override
 })
 
@@ -86,6 +87,52 @@ describe('determineMode', () => {
       const result = determineMode(input({ action: 'closed' }))
       expect(result.mode).toBe('skip')
       expect(result.reason).toMatch(/unsupported activity/)
+    })
+  })
+
+  describe('stacked pull request (poll-stacked-pull-requests on)', () => {
+    it.each(['opened', 'synchronize', 'reopened'])(
+      '%s without auto-merge or approval → polling',
+      (action) => {
+        const result = determineMode(
+          input({ action, isHeadShaEvent: true, isStackPolling: true })
+        )
+        expect(result.mode).toBe('polling')
+        expect(result.reason).toMatch(/PR is in a stack/)
+      }
+    )
+
+    it('stacked (PR joined a stack) → polling', () => {
+      const result = determineMode(
+        input({ action: 'stacked', isStackPolling: true })
+      )
+      expect(result.mode).toBe('polling')
+      expect(result.reason).toMatch(/PR is in a stack/)
+    })
+
+    it('stacked while the option is off → skip', () => {
+      const result = determineMode(input({ action: 'stacked' }))
+      expect(result.mode).toBe('skip')
+      expect(result.reason).toMatch(/unsupported activity/)
+    })
+
+    it('an activity that is neither a HEAD SHA event nor stacked → skip', () => {
+      const result = determineMode(
+        input({ action: 'labeled', isStackPolling: true })
+      )
+      expect(result.mode).toBe('skip')
+    })
+
+    it('a non-approve review still skips', () => {
+      const result = determineMode(
+        input({
+          eventName: 'pull_request_review',
+          action: 'submitted',
+          reviewState: 'commented',
+          isStackPolling: true
+        })
+      )
+      expect(result.mode).toBe('skip')
     })
   })
 

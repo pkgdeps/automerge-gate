@@ -100,8 +100,15 @@ export const runPrivate = async (
   // auto_merge_enabled doesn't need this lookup (auto-merge is a
   // sufficient merge-intent signal on its own).
   const isHeadShaEvent = isHeadShaAction(action)
+  // `pr.stack` is absent on hosts without stacked pull requests.
+  const isStackPolling =
+    inputs.pollStackedPullRequests &&
+    pr.stack !== undefined &&
+    pr.stack !== null
+  // A stacked PR polls regardless of merge intent, so the Approve
+  // lookup would not change the outcome.
   const needsApprovalLookup =
-    (isHeadShaEvent && pr.auto_merge === null) ||
+    (isHeadShaEvent && pr.auto_merge === null && !isStackPolling) ||
     eventName === 'pull_request_review'
   const isApproved = needsApprovalLookup
     ? await hasActiveApproval(octokit, owner, repo, pr.number)
@@ -113,7 +120,8 @@ export const runPrivate = async (
     reviewState,
     isHeadShaEvent,
     isAutoMergeAlreadyEnabled: pr.auto_merge !== null,
-    isApproved
+    isApproved,
+    isStackPolling
   })
 
   core.info(`Mode: ${mode} — ${reason}`)

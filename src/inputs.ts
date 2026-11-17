@@ -10,6 +10,7 @@ export type RawInputs = {
   gateMode: string
   token: string
   pollIntervalSeconds: string
+  pollStackedPullRequests: string
 }
 
 export type GateMode = 'private' | 'public'
@@ -33,6 +34,11 @@ export type ParsedInputs = {
   gateMode: GateMode
   token: string
   pollIntervalSeconds: number
+  /**
+   * `gate-mode: private` only. When `true`, a pull request that belongs
+   * to a GitHub stack always polls, without waiting for merge intent.
+   */
+  pollStackedPullRequests: boolean
 }
 
 const parsePositiveInt = (raw: string, name: string): number => {
@@ -43,6 +49,12 @@ const parsePositiveInt = (raw: string, name: string): number => {
     )
   }
   return n
+}
+
+const parseBoolean = (raw: string, name: string): boolean => {
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  throw new Error(`input \`${name}\` must be "true" or "false" (got: "${raw}")`)
 }
 
 const parseGateMode = (raw: string): GateMode => {
@@ -128,6 +140,10 @@ export const parseInputs = (raw: RawInputs): ParsedInputs => {
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
       'poll-interval-seconds'
+    ),
+    pollStackedPullRequests: parseBoolean(
+      raw.pollStackedPullRequests,
+      'poll-stacked-pull-requests'
     )
   }
 }
