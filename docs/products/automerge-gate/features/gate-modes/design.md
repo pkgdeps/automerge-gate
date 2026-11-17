@@ -28,8 +28,8 @@ When the event is not a pull request event, the entry point fails the job before
 Both runners share the same polling and aggregation and differ only in what happens before and after it.
 
 The private runner first decides between polling and skipping.
-The decision itself is a pure function of the event, the activity type, the review state, whether auto-merge is enabled, and whether an active Approve review from a reviewer with write access exists.
-The runner gathers those facts, calling the reviews API only when the answer depends on it: on an event that brings a new head commit while auto-merge is off, and on a review event.
+The decision itself is a pure function of the event, the activity type, the review state, whether auto-merge is enabled, whether an active Approve review from a reviewer with write access exists, and whether the pull request polls as part of a stack.
+The runner gathers those facts, calling the reviews API only when the answer depends on it: on an event that brings a new head commit while auto-merge is off and the pull request does not poll as part of a stack, and on a review event.
 A skip sets the outputs to `skipped` with zero counts, writes the step summary, and returns. Otherwise the runner polls, writes the commit status, sets the outputs, and fails the job when the verdict is `failure`.
 
 The public runner has no decision step.
@@ -64,6 +64,25 @@ Permission results are cached per reviewer within the run, and a "not found" ans
 
 Looking up reviews on each new head commit, and not only on the review event, is what makes an Approve review a lasting signal: the gate keeps polling on later pushes, the same way it does while auto-merge is enabled.
 
+### Why a pull request in a stack polls without merge intent
+
+Private mode waits for an event that carries merge intent, and for a stack no such event arrives.
+Enabling auto-merge on a stack is recorded in each pull request's timeline, but GitHub delivers no `auto_merge_enabled` event to workflows, so the gate is never started and the required check stays at "Expected".
+The observation is recorded in [the stacked pull request notes](../../../../lessons/2026-11-17-stacked-pr-auto-merge-event.md).
+
+Because nothing starts the gate at the moment auto-merge is enabled, the verdict has to be on the head commit beforehand.
+With `poll-on-stacked-pull-requests` on, a pull request whose event carries a `stack` object therefore polls on every event that brings a new head commit and on `stacked`, the same way public mode does.
+`stacked` is needed because the `opened` event has no `stack` object; it is the first event that tells the gate the pull request is in a stack.
+Every pull request in the stack polls, not only the top one, because each pull request in the stack has its own head commit and its own required check.
+
+The gate decides from the event of its own pull request alone and does not read the stack through the API.
+The stack number, the position, and the size are written to the job log so that a poll without merge intent can be explained afterwards.
+
+Two costs are accepted.
+A pull request in a stack gets a `success` status without anyone having expressed merge intent, so the required check no longer says that someone wants it merged.
+Every push to a pull request in a stack holds a runner until its checks finish, which is the cost of public mode.
+The input is off by default so that repositories that do not use stacks keep both properties.
+
 ## Architecture and sequence diagrams
 
 Private mode with merge intent:
@@ -84,6 +103,28 @@ sequenceDiagram
     A->>G: poll check runs until decided
     A->>G: write commit status (success or failure)
     G->>G: success → auto-merge merges
+```
+
+Private mode with a pull request in a stack and `poll-on-stacked-pull-requests` on:
+
+```mermaid
+sequenceDiagram
+    participant M as Maintainer
+    participant G as GitHub
+    participant A as Gate job (private)
+
+    M->>G: open pull request
+    G->>A: pull_request (opened, no stack)
+    A->>A: no merge intent → skip
+
+    M->>G: add the pull request to a stack
+    G->>A: pull_request (stacked, with stack)
+    A->>G: poll check runs until decided
+    A->>G: write commit status (success or failure)
+
+    M->>G: Enable auto-merge on the stack
+    Note over G,A: no event is delivered, the gate does not start
+    Note over G: status is already success → the required check passes
 ```
 
 Public mode:
@@ -113,6 +154,7 @@ A diagram is unnecessary because the only persistent record is the commit status
 | --- | --- | --- |
 | `gate-mode` | Both | Selects the runner. Required. |
 | `context` | Private | Context of the commit status. Default `automerge-gate/all-passed`. |
+| `poll-on-stacked-pull-requests` | Private | `true` makes a pull request in a stack poll without merge intent. Default `false`. Only `true` and `false` are accepted. |
 | `token` | Both | Token for every API call. Default is the workflow's token. Must not be empty. |
 
 ### Workflow file
@@ -120,6 +162,7 @@ A diagram is unnecessary because the only persistent record is the commit status
 The workflow file is part of the interface, because it decides which events reach the action.
 
 In private mode the workflow listens to `pull_request` with `opened`, `synchronize`, `reopened`, and `auto_merge_enabled`, and to `pull_request_review` with `submitted`.
+When `poll-on-stacked-pull-requests` is on, the workflow also lists `stacked` among the `pull_request` activity types.
 A job-level condition lets only approved reviews start the job, so that comment reviews do not start a runner; GitHub's trigger filters cannot select by review state.
 The concurrency group is set on the job, not on the workflow, so a review event filtered out by that condition never joins the group and cannot cancel a polling job.
 
@@ -195,10 +238,21 @@ The trials are recorded in [the check run state notes](../../../../lessons/2026-
 
 A check run can carry Markdown and a details link, but GitHub chooses its check suite, which caused the mismatch described above.
 
+### Reading auto-merge from a later event of a pull request in a stack
+
+Events that arrive after auto-merge was enabled on a stack carry the auto-merge state, so the gate could keep waiting for merge intent and pick it up on the next push.
+It is not done, because no event arrives at the moment auto-merge is enabled, so a stack that gets no further push would never be evaluated.
+In the trial the state was also set only on the top pull request of the stack, so the pull requests below it would need the state of another pull request.
+
+### Using public mode for repositories that use stacks
+
+Public mode already polls on every event, so a stack gets its verdict without a new input.
+It is not required, because it would make every pull request in the repository poll on every push, including the ones outside a stack.
+
 ### Supporting fork pull requests through `pull_request_target`
 
 No record of an evaluation remains beyond its listing as a later idea. Public mode covers fork pull requests without a write token.
 
 ## Open questions
 
-None.
+None beyond those in [Requirements](requirements.md#open-questions).

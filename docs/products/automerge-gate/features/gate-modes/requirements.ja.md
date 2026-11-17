@@ -14,6 +14,7 @@ public mode は、起動したイベントごとに評価し、判定をゲー�
 - `gate-mode` 入力によるゲートモードの選択。
 - ゲートが受け付けるイベント。
 - private mode で、マージの意思からポーリングするかスキップするかを決めること。
+- private mode で、`poll-on-stacked-pull-requests` 入力が有効なとき、スタック内のプルリクエストをマージの意思を待たずにポーリングすること。
 - それぞれのモードで、集約した判定を必須チェックへ報告すること。
 
 ### スコープ外
@@ -22,6 +23,7 @@ public mode は、起動したイベントごとに評価し、判定をゲー�
 - ジョブのログとステップサマリーに表示する内容。[チェック結果のログ](../check-results-log/requirements.ja.md)を参照。
 - プルリクエストのマージ。GitHub 純正の auto-merge が行う。
 - マージキュー（`merge_group` イベント）。対応していない。
+- スタックのマージ。GitHub が行う。ゲートはスタック内のほかのプルリクエストを見ない。
 
 ## ユーザーストーリー
 
@@ -97,6 +99,42 @@ Scenario: Approve ではないレビューが送信された場合、ゲート�
 - When: レビュアーがコメントのレビュー、または変更要求を送信する。
 - Then: ゲートのジョブはポーリングせずに成功し、commit status は書かれない。
 
+### スタック内のプルリクエストをゲートにかける
+
+プルリクエストのスタックをマージするメンテナとして、スタック内のすべてのプルリクエストに、マージの意思を待たずに判定を付けてほしい。スタックをマージできるようにするためである。
+
+**受け入れ条件:**
+
+Scenario: プルリクエストがスタックに入った場合、ゲートはマージの意思がなくてもポーリングする
+
+- Given: ゲートは `poll-on-stacked-pull-requests: 'true'` を付けた private mode で動いており、ワークフローは activity type の `stacked` を受けており、auto-merge は無効で、プルリクエストに Approve レビューはない。
+- When: プルリクエストがスタックに追加される。
+- Then: ゲートはチェックをポーリングして先頭コミットに commit status を書き、ジョブのログにはスタックの番号とスタック内でのプルリクエストの位置が出る。
+
+Scenario: スタック内のプルリクエストにコミットが push された場合、新しい先頭コミットが評価される
+
+- Given: ゲートは `poll-on-stacked-pull-requests: 'true'` を付けた private mode で動いており、プルリクエストはスタックに入っており、auto-merge は無効で、プルリクエストに Approve レビューはない。
+- When: プルリクエストにコミットが push される。
+- Then: ゲートは新しい先頭コミットのチェックをポーリングし、そのコミットに commit status を書く。
+
+Scenario: プルリクエストが開かれ、まだスタックに入っていない場合、ゲートはスキップする
+
+- Given: ゲートは `poll-on-stacked-pull-requests: 'true'` を付けた private mode で動いており、auto-merge は無効である。
+- When: プルリクエストが開かれる。
+- Then: ゲートのジョブはポーリングせずに成功し、commit status は書かれない。
+
+Scenario: プルリクエストがスタックに入っていない場合、この入力は何も変えない
+
+- Given: ゲートは `poll-on-stacked-pull-requests: 'true'` を付けた private mode で動いており、プルリクエストはスタックに入っておらず、auto-merge は無効で、プルリクエストに Approve レビューはない。
+- When: プルリクエストにコミットが push される。
+- Then: ゲートのジョブはポーリングせずに成功し、commit status は書かれない。
+
+Scenario: 入力が無効な場合、スタック内のプルリクエストはマージの意思を待つ
+
+- Given: ゲートは `poll-on-stacked-pull-requests` を付けない private mode で動いており、プルリクエストはスタックに入っており、auto-merge は無効で、プルリクエストに Approve レビューはない。
+- When: プルリクエストにコミットが push される。
+- Then: ゲートのジョブはポーリングせずに成功し、commit status は書かれない。
+
 ### 読み取り専用トークンで fork からのプルリクエストをゲートにかける
 
 fork からのプルリクエストを受けるリポジトリのメンテナとして、ゲートが読み取りの権限だけで動いてほしい。fork からのプルリクエストも、ほかと同じようにゲートにかけるためである。
@@ -132,6 +170,12 @@ Scenario: `gate-mode` が `private` でも `public` でもない場合、許さ�
 - Given: ワークフローが `gate-mode: main` を渡すか、この入力を省略している。
 - When: ゲートが起動する。
 - Then: ジョブは、`gate-mode` は `private` か `public` でなければならないというメッセージとともに失敗し、ポーリングも書き込みも行われない。
+
+Scenario: `poll-on-stacked-pull-requests` が `true` でも `false` でもない場合、許される値を示してジョブが失敗する
+
+- Given: ワークフローが `poll-on-stacked-pull-requests: 'yes'` を渡している。
+- When: ゲートが起動する。
+- Then: ジョブは、この入力が `true` か `false` でなければならないというメッセージで失敗し、何もポーリングされず、何も書かれない。
 
 Scenario: トークンでワークフロー実行を一覧できない場合、ポーリングの前にジョブが失敗する
 
@@ -173,7 +217,7 @@ Scenario: プルリクエスト以外のイベントでワークフローが起�
 
 **概要:** private mode では、ゲートは実行の最初に一度だけ、ポーリングするかスキップするかを決める。
 
-**入力:** イベント、その activity type、レビューイベントではレビューの state、イベント時点でプルリクエストの auto-merge が有効かどうか、プルリクエストのレビュー。
+**入力:** イベント、その activity type、レビューイベントではレビューの state、イベント時点でプルリクエストの auto-merge が有効かどうか、プルリクエストのレビュー、`poll-on-stacked-pull-requests` 入力、プルリクエストがスタックに入っているとイベントが示しているかどうか。
 
 **出力:** ポーリングまたはスキップ。理由はジョブのログに出る。
 
@@ -184,13 +228,30 @@ Scenario: プルリクエスト以外のイベントでワークフローが起�
 | イベント | 条件 | 結果 |
 | --- | --- | --- |
 | `pull_request` の `auto_merge_enabled` | 常に | ポーリング |
+| `pull_request` の `opened`、`synchronize`、`reopened`、`stacked` | `poll-on-stacked-pull-requests` が有効で、プルリクエストがスタックに入っている | ポーリング |
 | `pull_request` の `opened`、`synchronize`、`reopened` | auto-merge が有効 | ポーリング |
 | `pull_request` の `opened`、`synchronize`、`reopened` | auto-merge が無効で、書き込み権限のあるレビュアーの有効な Approve レビューがある | ポーリング |
 | `pull_request` の `opened`、`synchronize`、`reopened` | どちらでもない | スキップ |
-| `pull_request` のそのほかの activity type | 常に | スキップ |
+| `pull_request` のそのほかの activity type。上の行に当てはまらない `stacked` を含む | 常に | スキップ |
 | `pull_request_review` の `submitted` で state が `approved` | 書き込み権限のあるレビュアーの有効な Approve レビューがある | ポーリング |
 | `pull_request_review` の `submitted` で state が `approved` | そのようなレビューがない | スキップ |
 | それ以外の `pull_request_review` | 常に | スキップ |
+
+行は上から順に読み、最初に当てはまった行で決まる。
+
+##### スタック内のプルリクエスト
+
+イベントのプルリクエストに `stack` オブジェクトがあるとき、そのプルリクエストはスタックに入っている。
+GitHub がこれを設定するのは activity type の `stacked` 以降である。プルリクエストは作られたあとでスタックに入るため、`opened` のイベントには付かない。
+
+`poll-on-stacked-pull-requests` は `true` か `false` で、既定は `false` である。それ以外の値では、ほかの処理より前にジョブが失敗する。
+有効なとき、スタック内のすべてのプルリクエストは、マージの意思があるかどうかに関係なく、`opened`、`synchronize`、`reopened`、`stacked` でポーリングする。これらのイベントではレビューを読まない。
+レビューのイベントは、スタックに入っていないプルリクエストと同じように判断する。
+スタックに入っていないプルリクエストは、この入力の影響を受けない。
+
+ワークフローは、`pull_request` の activity type に `stacked` を挙げる必要がある。挙げていないと、スタックに入ったあと push されないプルリクエストは評価されない。
+
+スタック内のプルリクエストをもう一度評価するには、メンテナがコミットを push するか、ゲートのジョブを再実行する。スタックで auto-merge を有効にしても、ワークフローは起動しない。
 
 ##### 有効な Approve レビュー
 
@@ -264,13 +325,13 @@ Approve レビューが「マージしてよい」ではなく「問題なさそ
 
 ##### マージの意思の判断をしない
 
-public mode は auto-merge もレビューも見ない。受け付けたイベントはすべてポーリングする。ワークフローが `pull_request_review` を受けているなら、そのイベントでもポーリングする。
+public mode は auto-merge もレビューもスタックも見ない。受け付けたイベントはすべてポーリングする。ワークフローが `pull_request_review` を受けているなら、そのイベントでもポーリングする。`poll-on-stacked-pull-requests` 入力は無視する。
 
 ## データ要件
 
 ### 必要なデータ
 
-- **プルリクエストのイベント:** イベント名、activity type、プルリクエスト番号、先頭コミット、auto-merge の状態、レビューの state。ワークフローのイベントから読み、保存しない。
+- **プルリクエストのイベント:** イベント名、activity type、プルリクエスト番号、先頭コミット、auto-merge の状態、レビューの state、プルリクエストが入っているスタック（スタックの番号、プルリクエストの位置、スタックの大きさ）。ワークフローのイベントから読み、保存しない。
 - **レビュー:** プルリクエストに対する各レビュアーのレビューと、Approve した各レビュアーのリポジトリでの権限。private mode で、判断に必要なときだけ読み、保存しない。
 - **commit status:** private mode で書き込む判定。GitHub が先頭コミットに保持する。
 
@@ -297,4 +358,4 @@ public mode は書き込みの権限を必要としない。fork からのプル
 
 ## 未決事項
 
-なし。
+- **未確認: auto-merge によるスタックのマージ。** `poll-on-stacked-pull-requests` を有効にした試行では、スタック内のすべてのプルリクエストに `success` の commit status が付き、マージできる状態になった。ただし、GitHub の UI からスタックの auto-merge でマージされるところまでは観察していない。確かめるかどうかは azu が決める。
