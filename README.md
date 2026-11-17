@@ -14,6 +14,7 @@ automerge-gate replaces that list with **one aggregated check**. You register on
 
 - Related: [Is it possible to require all GitHub Actions tasks to pass without enumerating them? · community · Discussion #26733](https://github.com/orgs/community/discussions/26733)
 - Migrating from merge-gatekeeper? See the [migration guide](docs/migration-from-merge-gatekeeper.md).
+- Specifications (Product, Requirements, Design): [docs/products/automerge-gate/product.md](docs/products/automerge-gate/product.md).
 
 ## How it works
 

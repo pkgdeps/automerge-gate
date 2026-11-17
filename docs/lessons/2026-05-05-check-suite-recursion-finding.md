@@ -79,6 +79,6 @@ empirical 確認をしていないため、 「外部 App と並走する場合�
 - [Triggering a workflow - GitHub Docs](https://docs.github.com/actions/using-workflows/triggering-a-workflow)
 - [community discussion #26169 - on: check_suite never triggers, why?](https://github.com/orgs/community/discussions/26169)
 - [community discussion #25702 - Push from Action does not trigger subsequent action](https://github.com/orgs/community/discussions/25702)
-- このリポジトリの spec: `docs/superpowers/specs/2026-05-05-check-suite-gate-design.md`
-- このリポジトリの plan: `docs/superpowers/plans/2026-05-05-check-suite-gate-implementation.md`
+- 当時の spec と plan（`docs/superpowers/specs/2026-05-05-check-suite-gate-design.md`、`docs/superpowers/plans/2026-05-05-check-suite-gate-implementation.md`）は削除した。 git の履歴で読める
+- 現在の仕様: [docs/products/automerge-gate/product.ja.md](../products/automerge-gate/product.ja.md)
 - dogfood test PR (発火しなかった証拠): https://github.com/pkgdeps/check-suite-gate/pull/2
