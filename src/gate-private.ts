@@ -76,6 +76,11 @@ export const runPrivate = async (
   core.startGroup('Setup')
   core.info(`Event: ${eventName} (action=${action})`)
   core.info(`PR #${pr.number}, head SHA ${pr.head.sha}`)
+  if (pr.stack !== undefined && pr.stack !== null) {
+    core.info(
+      `Stack: #${pr.stack.number}, position ${pr.stack.position} of ${pr.stack.size} (poll-on-stacked-pull-requests=${inputs.pollOnStackedPullRequests})`
+    )
+  }
 
   const sha = pr.head.sha
   const targetUrl = buildTargetUrl({

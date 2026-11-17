@@ -25454,6 +25454,11 @@ var runPrivate = async (deps, inputs) => {
   core3.startGroup("Setup");
   core3.info(`Event: ${eventName} (action=${action})`);
   core3.info(`PR #${pr.number}, head SHA ${pr.head.sha}`);
+  if (pr.stack !== void 0 && pr.stack !== null) {
+    core3.info(
+      `Stack: #${pr.stack.number}, position ${pr.stack.position} of ${pr.stack.size} (poll-on-stacked-pull-requests=${inputs.pollOnStackedPullRequests})`
+    );
+  }
   const sha = pr.head.sha;
   const targetUrl = buildTargetUrl({
     serverUrl,
