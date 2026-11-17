@@ -24873,36 +24873,25 @@ var core3 = __toESM(require_core());
 
 // src/api.ts
 var fetchAllCheckRuns = async (octokit, owner, repo, sha) => {
-  const suites = await withRetry(
-    () => octokit.paginate(
-      octokit.rest.checks.listSuitesForRef,
-      { owner, repo, ref: sha, per_page: 100 }
-    ),
+  const checkRuns = await withRetry(
+    () => octokit.paginate(octokit.rest.checks.listForRef, {
+      owner,
+      repo,
+      ref: sha,
+      filter: "latest",
+      per_page: 100
+    }),
     { retries: 3, baseDelayMs: 500 }
   );
-  const runs = [];
-  for (const suite of suites) {
-    const slug = suite.app?.slug ?? "unknown";
-    const suiteRuns = await withRetry(
-      () => octokit.paginate(
-        octokit.rest.checks.listForSuite,
-        { owner, repo, check_suite_id: suite.id, per_page: 100 }
-      ),
-      { retries: 3, baseDelayMs: 500 }
-    );
-    for (const r of suiteRuns) {
-      runs.push({
-        id: r.id,
-        name: r.name,
-        status: r.status,
-        conclusion: r.conclusion,
-        details_url: r.details_url,
-        app: { slug },
-        suite_id: suite.id
-      });
-    }
-  }
-  return runs;
+  return checkRuns.map((r) => ({
+    id: r.id,
+    name: r.name,
+    status: r.status,
+    conclusion: r.conclusion,
+    details_url: r.details_url,
+    app: { slug: r.app?.slug ?? "unknown" },
+    suite_id: r.check_suite?.id ?? 0
+  }));
 };
 var createWorkflowPathLookup = (octokit, owner, repo) => {
   const cache = /* @__PURE__ */ new Map();
