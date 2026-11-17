@@ -47,9 +47,9 @@ public mode では、必須チェックはゲートのジョブ自身の check r
 ### private mode の判定が commit status である理由
 
 commit status は、コミットと context で識別され、どの check suite にも属さない。
-バージョン2と3は、判定を API 経由の check run として書いていた。GitHub はそのような check run を、GitHub 自身が選んだ check suite に付けた。プルリクエストの最初の実行の古い check suite に付くこともあった。
-その結果、ゲートが success を報告しているのに、必須チェックがブロックされたままになった。
-バージョン4は commit status に戻した。commit status では、この食い違いは起こりえない。
+API 経由で書いた check run はこれと異なる。GitHub はその check run を、GitHub 自身が選んだ check suite に付ける。プルリクエストの最初の実行の古い check suite に付くこともあり、その場合、ゲートが success を報告しているのに、必須チェックがブロックされたままになる。
+commit status では、この食い違いは起こりえない。
+この根拠となる観測は、[check run の状態についての記録](../../../../lessons/2026-05-06-check-run-pending-state-mapping.md)にある。
 
 status はコミットと context で識別されるため、push のあとの後始末は要らない。新しい先頭コミットには、単にまだ status がない。
 同じ理由で、ゲートは `pending` の status を書かない。status がないこと自体がすでにマージをブロックしており、書き込めば正しく保つべき書き込みが1つ増える。
@@ -168,8 +168,8 @@ public mode は書き込みの権限を持たないため、fork からのプル
 ### `check_suite.completed` や `check_run.completed` から起動する
 
 これらのイベントを使えば、チェックが終わったときに一度だけ、ポーリングなしでゲートを動かせる。
-しかし GitHub Actions は、GitHub Actions が作った check suite と check run ではワークフローを起動しない。そのため、GitHub Actions だけを使うリポジトリではゲートが一度も動かなかった。
-これは最初の版の設計であり、置き換えられた理由である。
+しかし GitHub Actions は、GitHub Actions が作った check suite と check run ではワークフローを起動しない。そのため、GitHub Actions だけを使うリポジトリではゲートが動かない。
+この観測は、[check suite の再帰についての記録](../../../../lessons/2026-05-05-check-suite-recursion-finding.md)にある。
 
 ### `workflow_run` から起動する
 
@@ -185,9 +185,10 @@ merge-gatekeeper の方式である。誰かがマージするつもりかどう
 
 ### プルリクエストを開いたときに `pending` の status を書く
 
-以前の設計は、push のたびとポーリングの前に pending の結果を書いていた。必須チェックが最初から「auto-merge 待ち」と表示され、ゲートのポーリング中は進行が見えるようにするためである。
-バージョン3で、設計を単純に保つために取り除いた。ポーリング前の書き込みは、2つのゲートのジョブの間の競合を塞ぐためのものであり、ジョブを1つにした構成でその競合がなくなった。
+push のたびとポーリングの前に pending の結果を書けば、必須チェックが最初から「auto-merge 待ち」と表示され、ゲートのポーリング中は進行が見える。
+設計を単純に保つために、これは行わない。書き込みは実行ごとに1回だけにし、正しく保つべき2つ目の書き込みを作らない。
 受け入れた代償は、ポーリング中のプルリクエストには GitHub の「Expected」の行だけが表示され、ゲートが動いていることを確かめるにはワークフロー実行を開く必要があることである。
+試した結果は、[check run の状態についての記録](../../../../lessons/2026-05-06-check-run-pending-state-mapping.md)にある。
 
 ### private mode の判定を check run として報告する
 

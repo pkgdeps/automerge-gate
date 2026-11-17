@@ -47,9 +47,9 @@ This is the price of not needing a write token.
 ### Why the verdict is a commit status in private mode
 
 A commit status is identified by the commit and its context and belongs to no check suite.
-Versions 2 and 3 wrote the verdict as a check run through the API, and GitHub attached such check runs to a check suite of its own choosing, sometimes a stale one from the pull request's first run.
-The required check then stayed blocked although the gate had reported success.
-Version 4 returned to the commit status, where that mismatch cannot happen.
+A check run written through the API is different: GitHub attaches it to a check suite of its own choosing, sometimes a stale one from the pull request's first run, and the required check then stays blocked although the gate reported success.
+With a commit status that mismatch cannot happen.
+The observation behind this is recorded in [the check run state notes](../../../../lessons/2026-05-06-check-run-pending-state-mapping.md).
 
 Because the status is keyed by commit and context, a push needs no cleanup: the new head commit simply has no status yet.
 For the same reason the gate writes no `pending` status. An absent status already blocks merging, and writing one would add a second write to keep correct.
@@ -168,8 +168,8 @@ None. A release is an immutable tag that users pin in their workflow file.
 ### Starting from `check_suite.completed` or `check_run.completed`
 
 These events would let the gate run once when checks finish, without polling.
-GitHub Actions does not start workflows for check suites and check runs that GitHub Actions created, so in a repository that uses only GitHub Actions the gate never ran.
-This was the first version's design and the reason it was replaced.
+GitHub Actions does not start workflows for check suites and check runs that GitHub Actions created, so in a repository that uses only GitHub Actions the gate never runs.
+The observation is recorded in [the check suite recursion notes](../../../../lessons/2026-05-05-check-suite-recursion-finding.md).
 
 ### Starting from `workflow_run`
 
@@ -185,9 +185,10 @@ This is what merge-gatekeeper does. Every push holds a runner until its checks f
 
 ### Writing a `pending` status when a pull request opens
 
-An earlier design wrote a pending result on every push and before polling, so that the required check showed "awaiting auto-merge" from the start and showed progress while the gate polled.
-It was removed in version 3 to keep the design simple: the write before polling existed to close a race between two gate jobs, and the single-job layout removed that race.
+Writing a pending result on every push and before polling would make the required check show "awaiting auto-merge" from the start and show progress while the gate polls.
+It is not done, to keep the design simple: one write per run, and no second write to keep correct.
 The accepted cost is that during polling the pull request shows only GitHub's "Expected" line, so a maintainer has to open the workflow run to see that the gate is running.
+The trials are recorded in [the check run state notes](../../../../lessons/2026-05-06-check-run-pending-state-mapping.md).
 
 ### Reporting the private-mode verdict as a check run
 

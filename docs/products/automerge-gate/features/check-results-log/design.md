@@ -44,8 +44,8 @@ A group per poll serves the first two.
 While a group is open its lines stream into view, and when it closes it collapses to its title, so a watcher sees a new titled line at every interval and the finished log is one line per poll.
 The elapsed time in the title is there to make the passing of time visible.
 
-Because groups cannot be nested, the per-poll groups required removing the groups that used to wrap the whole polling phase and the result.
-The private-mode "Setup" group stays, because it holds fixed start-up information and ends before polling begins.
+Because groups cannot be nested, no group wraps the whole polling phase or the result.
+The private-mode "Setup" group is compatible with this, because it holds fixed start-up information and ends before polling begins.
 
 The last poll's group repeats what the final result shows.
 It is kept as the record of that poll, and the final result is written outside any group so that it is visible without expanding anything.
@@ -109,7 +109,7 @@ A shorter body would list only what is still pending. The body lists every check
 
 ### Keeping one group around all polls
 
-This was the earlier layout. Groups cannot be nested, so it was removed to make room for one group per poll.
+Groups cannot be nested, so a group around all polls rules out one group per poll.
 
 ### Showing failure details in the log
 

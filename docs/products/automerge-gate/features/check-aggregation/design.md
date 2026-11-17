@@ -48,7 +48,7 @@ The count before step 3 is the `total-checks` output; the list after step 7 is w
 
 GitHub creates a workflow run when it queues it, but the run's jobs become check runs only a few seconds later.
 A gate that polls in that gap sees every existing check run passed and would report success before the new run's jobs appear.
-This happened in version 5.0.2 when a newer run replaced a cancelled one.
+The case is TC-cancel-7 in the [E2E test cases](../../../../e2e-test-cases.md), where a newer run replaces a cancelled one.
 The placeholder makes the queued run visible as a pending check until its real check runs exist.
 
 ### Excluding the gate's own workflow
@@ -140,8 +140,8 @@ Each request is retried up to three times with exponential backoff, starting at 
 Client errors are not retried.
 A client error on the workflow-run list is reported as "cannot list" and turned into the `actions: read` message; a client error on the check-run list fails that poll.
 
-Check runs were once read per check suite, with one request to list the suites and one per suite.
-The single request per commit replaced that so that the number of requests per poll no longer grows with the number of check suites, which had run into rate limits.
+Check runs could also be read per check suite, with one request to list the suites and one per suite.
+The single request per commit is used so that the number of requests per poll does not grow with the number of check suites; the per-suite form runs into rate limits.
 
 ## Data handling
 
@@ -172,12 +172,12 @@ Rejected for the reasons under "Why polling has no timeout input".
 
 ### Excluding only the current run by its run id
 
-The first design compared each check run's run id with the current run id.
-That leaves earlier cancelled gate runs on the same commit in the evaluation, where they read as failures.
+Comparing each check run's run id with the current run id is simpler.
+It leaves earlier cancelled gate runs on the same commit in the evaluation, where they read as failures.
 
 ### Listing check suites and then the check runs of each suite
 
-This was the original way to read check runs. It was replaced because its request count grows with the number of check suites.
+Its request count grows with the number of check suites, which runs into rate limits on commits with many suites.
 
 ## Open questions
 
