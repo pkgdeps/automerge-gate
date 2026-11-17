@@ -79,6 +79,7 @@ An aggregation job inside one workflow, such as alls-green, does not solve this 
 - **Private mode:** The gate mode for repositories without fork pull requests. The gate evaluates only when merge intent exists and reports the verdict as a commit status.
 - **Public mode:** The gate mode for repositories that accept fork pull requests. The gate evaluates on every triggering event and reports the verdict as the result of the gate job.
 - **Merge intent:** The signal, in private mode, that someone wants the pull request merged: auto-merge is enabled, or a reviewer with write access has an active Approve review.
+- **Stack:** A group of pull requests that GitHub links in order, each based on the one below it. In private mode a pull request in a stack can poll without merge intent.
 - **Context:** The name of the commit status that private mode writes. It must equal the required check.
 - **Check run:** One result reported on a commit through GitHub's Checks API, for example one job of a GitHub Actions workflow or one check from a GitHub App.
 - **Aggregated verdict:** The single result, `success` or `failure`, that the gate derives from the check runs on the head commit.

@@ -24795,6 +24795,11 @@ var parsePositiveInt = (raw, name) => {
   }
   return n;
 };
+var parseBoolean = (raw, name) => {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`input \`${name}\` must be "true" or "false" (got: "${raw}")`);
+};
 var parseGateMode = (raw) => {
   if (raw === "private" || raw === "public") return raw;
   throw new Error(
@@ -24864,6 +24869,10 @@ var parseInputs = (raw) => {
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
       "poll-interval-seconds"
+    ),
+    pollOnStackedPullRequests: parseBoolean(
+      raw.pollOnStackedPullRequests,
+      "poll-on-stacked-pull-requests"
     )
   };
 };
@@ -25200,6 +25209,7 @@ var writeCommitStatus = async (octokit, input, retryOptions = {
 // src/mode.ts
 var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
 var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
+var STACKED_ACTION = "stacked";
 var KNOWN_REVIEW_STATES = [
   "approved",
   "changes_requested",
@@ -25218,7 +25228,8 @@ var determineMode = (input) => {
     reviewState,
     isHeadShaEvent,
     isAutoMergeAlreadyEnabled,
-    isApproved
+    isApproved,
+    isStackPolling
   } = input;
   if (eventName === "pull_request_review") {
     if (action !== "submitted" || reviewState !== "approved") {
@@ -25242,6 +25253,12 @@ var determineMode = (input) => {
     return {
       mode: "polling",
       reason: "Enable auto-merge clicked (pull_request.auto_merge_enabled)"
+    };
+  }
+  if (isStackPolling && (isHeadShaEvent || action === STACKED_ACTION)) {
+    return {
+      mode: "polling",
+      reason: `PR is in a stack and poll-on-stacked-pull-requests is on (action=${action}) \u2014 auto-merge on a stack sends no auto_merge_enabled event, so polling without waiting for merge intent`
     };
   }
   if (isHeadShaEvent) {
@@ -25437,6 +25454,11 @@ var runPrivate = async (deps, inputs) => {
   core3.startGroup("Setup");
   core3.info(`Event: ${eventName} (action=${action})`);
   core3.info(`PR #${pr.number}, head SHA ${pr.head.sha}`);
+  if (pr.stack !== void 0 && pr.stack !== null) {
+    core3.info(
+      `Stack: #${pr.stack.number}, position ${pr.stack.position} of ${pr.stack.size} (poll-on-stacked-pull-requests=${inputs.pollOnStackedPullRequests})`
+    );
+  }
   const sha = pr.head.sha;
   const targetUrl = buildTargetUrl({
     serverUrl,
@@ -25445,7 +25467,8 @@ var runPrivate = async (deps, inputs) => {
     runAttempt
   });
   const isHeadShaEvent = isHeadShaAction(action);
-  const needsApprovalLookup = isHeadShaEvent && pr.auto_merge === null || eventName === "pull_request_review";
+  const isStackPolling = inputs.pollOnStackedPullRequests && pr.stack !== void 0 && pr.stack !== null;
+  const needsApprovalLookup = isHeadShaEvent && pr.auto_merge === null && !isStackPolling || eventName === "pull_request_review";
   const isApproved = needsApprovalLookup ? await hasActiveApproval(octokit, owner, repo, pr.number) : false;
   const { mode, reason } = determineMode({
     eventName,
@@ -25453,7 +25476,8 @@ var runPrivate = async (deps, inputs) => {
     reviewState,
     isHeadShaEvent,
     isAutoMergeAlreadyEnabled: pr.auto_merge !== null,
-    isApproved
+    isApproved,
+    isStackPolling
   });
   core3.info(`Mode: ${mode} \u2014 ${reason}`);
   core3.endGroup();
@@ -25768,7 +25792,8 @@ var run = async () => {
     ignoreChecks: core5.getInput("ignore-checks"),
     gateMode: core5.getInput("gate-mode"),
     token: core5.getInput("token"),
-    pollIntervalSeconds: core5.getInput("poll-interval-seconds")
+    pollIntervalSeconds: core5.getInput("poll-interval-seconds"),
+    pollOnStackedPullRequests: core5.getInput("poll-on-stacked-pull-requests")
   });
   const context2 = buildContext();
   if (context2 === null) return;

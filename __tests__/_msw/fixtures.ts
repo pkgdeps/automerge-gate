@@ -52,5 +52,6 @@ export const buildInputs = (
   gateMode: 'private',
   token: 'test-token',
   pollIntervalSeconds: 1,
+  pollOnStackedPullRequests: false,
   ...override
 })

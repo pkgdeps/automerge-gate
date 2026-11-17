@@ -14,6 +14,7 @@ The parent Product is [automerge-gate](../../product.md).
 - Choosing the gate mode with the `gate-mode` input.
 - The events the gate accepts.
 - In private mode, deciding between polling and skipping from merge intent.
+- In private mode, polling a pull request in a stack without waiting for merge intent, when the `poll-on-stacked-pull-requests` input is on.
 - Reporting the aggregated verdict to the required check in each mode.
 
 ### Out of scope
@@ -22,6 +23,7 @@ The parent Product is [automerge-gate](../../product.md).
 - What the job log and step summary show. See [Check results log](../check-results-log/requirements.md).
 - Merging the pull request. GitHub's native auto-merge does that.
 - Merge queue (`merge_group` events). It is not supported.
+- Merging a stack. GitHub does that, and the gate does not look at the other pull requests in the stack.
 
 ## User stories
 
@@ -97,6 +99,48 @@ Scenario: When a review that is not an Approve is submitted, the gate skips
 - When: A reviewer submits a comment review or a request for changes.
 - Then: The gate job succeeds without polling, and no commit status is written.
 
+### Gate pull requests in a stack
+
+As a maintainer who merges stacks of pull requests, I want every pull request in a stack to get a verdict without waiting for merge intent so that the stack can merge.
+
+**Acceptance criteria:**
+
+Scenario: When a pull request joins a stack, the gate polls without merge intent
+
+- Given: The gate runs in private mode with `poll-on-stacked-pull-requests: 'true'`, the workflow listens to the `stacked` activity type, auto-merge is off, and the pull request has no Approve review.
+- When: The pull request is added to a stack.
+- Then: The gate polls the checks and writes a commit status on the head commit, and the job log shows the stack number and the pull request's position in the stack.
+
+Scenario: When a commit is pushed to a pull request in a stack, the new head commit is evaluated
+
+- Given: The gate runs in private mode with `poll-on-stacked-pull-requests: 'true'`, the pull request is in a stack, auto-merge is off, and the pull request has no Approve review.
+- When: A commit is pushed to the pull request.
+- Then: The gate polls the checks of the new head commit and writes a commit status on that commit.
+
+Scenario: When auto-merge is enabled on a stack while the gate is polling, the stack merges after the verdict
+
+- Given: The gate runs in private mode with `poll-on-stacked-pull-requests: 'true'`, every pull request in a stack is polling, and one check is still running.
+- When: A maintainer enables auto-merge on the stack, and the running check later passes.
+- Then: The gate writes a `success` commit status on each head commit, and GitHub merges the stack without the gate being started again.
+
+Scenario: When a pull request is opened and is not in a stack yet, the gate skips
+
+- Given: The gate runs in private mode with `poll-on-stacked-pull-requests: 'true'`, and auto-merge is off.
+- When: A pull request is opened.
+- Then: The gate job succeeds without polling, and no commit status is written.
+
+Scenario: When a pull request is not in a stack, the input changes nothing
+
+- Given: The gate runs in private mode with `poll-on-stacked-pull-requests: 'true'`, the pull request is not in a stack, auto-merge is off, and the pull request has no Approve review.
+- When: A commit is pushed to the pull request.
+- Then: The gate job succeeds without polling, and no commit status is written.
+
+Scenario: When the input is off, a pull request in a stack waits for merge intent
+
+- Given: The gate runs in private mode without `poll-on-stacked-pull-requests`, the pull request is in a stack, auto-merge is off, and the pull request has no Approve review.
+- When: A commit is pushed to the pull request.
+- Then: The gate job succeeds without polling, and no commit status is written.
+
 ### Gate fork pull requests with a read-only token
 
 As a maintainer of a repository that accepts fork pull requests, I want the gate to work with read permissions only so that fork pull requests are gated the same way as others.
@@ -132,6 +176,12 @@ Scenario: When `gate-mode` is not `private` or `public`, the job fails with the 
 - Given: The workflow passes `gate-mode: main`, or omits the input.
 - When: The gate starts.
 - Then: The job fails with a message that `gate-mode` must be `private` or `public`, and nothing is polled or written.
+
+Scenario: When `poll-on-stacked-pull-requests` is not `true` or `false`, the job fails with the allowed values
+
+- Given: The workflow passes `poll-on-stacked-pull-requests: 'yes'`.
+- When: The gate starts.
+- Then: The job fails with a message that the input must be `true` or `false`, and nothing is polled or written.
 
 Scenario: When the token cannot list workflow runs, the job fails before polling
 
@@ -173,7 +223,7 @@ A gate that did nothing must not look like a gate that passed: in public mode a 
 
 **Overview:** In private mode the gate decides, once at the start of the run, whether to poll or to skip.
 
-**Input:** The event, its activity type, the review state for review events, whether auto-merge is enabled on the pull request at the time of the event, and the pull request's reviews.
+**Input:** The event, its activity type, the review state for review events, whether auto-merge is enabled on the pull request at the time of the event, the pull request's reviews, the `poll-on-stacked-pull-requests` input, and whether the event says the pull request is in a stack.
 
 **Output:** Polling or skipping, with the reason written to the job log.
 
@@ -184,13 +234,32 @@ A gate that did nothing must not look like a gate that passed: in public mode a 
 | Event | Condition | Result |
 | --- | --- | --- |
 | `pull_request` with `auto_merge_enabled` | Always | Poll |
+| `pull_request` with `opened`, `synchronize`, `reopened`, or `stacked` | `poll-on-stacked-pull-requests` is on and the pull request is in a stack | Poll |
 | `pull_request` with `opened`, `synchronize`, or `reopened` | Auto-merge is enabled | Poll |
 | `pull_request` with `opened`, `synchronize`, or `reopened` | Auto-merge is off and an active Approve review from a reviewer with write access exists | Poll |
 | `pull_request` with `opened`, `synchronize`, or `reopened` | Neither | Skip |
-| `pull_request` with any other activity type | Always | Skip |
+| `pull_request` with any other activity type, including `stacked` when the row above does not apply | Always | Skip |
 | `pull_request_review` with `submitted` and state `approved` | An active Approve review from a reviewer with write access exists | Poll |
 | `pull_request_review` with `submitted` and state `approved` | No such review exists | Skip |
 | `pull_request_review` otherwise | Always | Skip |
+
+The rows are read from the top, and the first row that applies decides.
+
+##### Pull requests in a stack
+
+The `poll-on-stacked-pull-requests` input is a workaround for stacks, where enabling auto-merge was observed not to start the gate. It exists only until GitHub delivers that event.
+
+A pull request is in a stack when the event's pull request carries a `stack` object.
+GitHub sets it from the `stacked` activity type onward; an `opened` event never carries it, because a pull request joins a stack after it is created.
+
+`poll-on-stacked-pull-requests` is `true` or `false`, and the default is `false`. Any other value fails the job before anything else happens.
+When it is on, every pull request in a stack polls on `opened`, `synchronize`, `reopened`, and `stacked`, whether or not merge intent exists, and the reviews are not read for those events.
+Review events are decided the same way as for a pull request outside a stack.
+Pull requests outside a stack are not affected by the input.
+
+The workflow has to list `stacked` among its `pull_request` activity types. Without it, a pull request that joins a stack and gets no further push is never evaluated.
+
+To evaluate a pull request in a stack again, a maintainer pushes a commit or re-runs the gate job. Enabling auto-merge on the stack does not start the workflow.
 
 ##### Active Approve review
 
@@ -264,13 +333,13 @@ The job's `name:` must equal the required check in the ruleset. The `context` in
 
 ##### No merge intent decision
 
-Public mode does not look at auto-merge or reviews. Every accepted event polls, including a `pull_request_review` event if the workflow listens to it.
+Public mode does not look at auto-merge, reviews, or stacks. Every accepted event polls, including a `pull_request_review` event if the workflow listens to it. The `poll-on-stacked-pull-requests` input is ignored.
 
 ## Data requirements
 
 ### Required data
 
-- **Pull request event:** The event name, activity type, pull request number, head commit, auto-merge state, and review state. Read from the workflow's event; not stored.
+- **Pull request event:** The event name, activity type, pull request number, head commit, auto-merge state, review state, and the stack the pull request is in (its number, the pull request's position, and the stack's size). Read from the workflow's event; not stored.
 - **Reviews:** Each reviewer's reviews on the pull request and each approving reviewer's permission on the repository. Read in private mode only, when the decision needs them; not stored.
 - **Commit status:** The verdict written in private mode, kept by GitHub on the head commit.
 
@@ -297,4 +366,4 @@ The token is used only to read checks, workflow runs, reviews, and permissions, 
 
 ## Open questions
 
-None.
+- **Unconfirmed: whether GitHub will deliver `auto_merge_enabled` for a stack.** The workaround assumes the event is not delivered, which was observed twice on 2026-11-17. GitHub's documentation does not say whether this is intended or temporary. When the event is delivered, the input can be deprecated; nobody is assigned to re-check. azu decides when to re-check.

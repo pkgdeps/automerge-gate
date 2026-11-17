@@ -8,6 +8,13 @@ export type RunContext = {
     number: number
     head: { sha: string }
     auto_merge: { enabled_by: { login: string } } | null
+    /**
+     * Set while the pull request belongs to a GitHub stack; `null` or
+     * absent otherwise. `pull_request.opened` never carries it, because
+     * a pull request joins a stack after it is created (the `stacked`
+     * activity reports that).
+     */
+    stack?: { number: number; position: number; size: number } | null
   }
   reviewState: ReviewState | null
   before: string | undefined

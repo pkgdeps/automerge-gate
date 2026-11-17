@@ -11,6 +11,7 @@ const raw = (override: Partial<RawInputs> = {}): RawInputs => ({
   gateMode: 'private',
   token: 'tok',
   pollIntervalSeconds: '30',
+  pollOnStackedPullRequests: 'false',
   ...override
 })
 
@@ -50,6 +51,26 @@ describe('parseInputs', () => {
   it("accepts gateMode = 'private' or 'public'", () => {
     expect(parseInputs(raw({ gateMode: 'private' })).gateMode).toBe('private')
     expect(parseInputs(raw({ gateMode: 'public' })).gateMode).toBe('public')
+  })
+
+  it('parses poll-on-stacked-pull-requests as a boolean', () => {
+    expect(
+      parseInputs(raw({ pollOnStackedPullRequests: 'true' }))
+        .pollOnStackedPullRequests
+    ).toBe(true)
+    expect(
+      parseInputs(raw({ pollOnStackedPullRequests: 'false' }))
+        .pollOnStackedPullRequests
+    ).toBe(false)
+  })
+
+  it('throws on a poll-on-stacked-pull-requests value other than true / false', () => {
+    expect(() =>
+      parseInputs(raw({ pollOnStackedPullRequests: 'yes' }))
+    ).toThrow(/poll-on-stacked-pull-requests/)
+    expect(() => parseInputs(raw({ pollOnStackedPullRequests: '' }))).toThrow(
+      /poll-on-stacked-pull-requests/
+    )
   })
 
   it('throws on invalid gateMode (legacy v2 values rejected with migration hint)', () => {

@@ -79,6 +79,7 @@ alls-green のように1つのワークフローの中でまとめるジョブ�
 - **private mode:** fork からのプルリクエストがないリポジトリ向けのゲートモード。マージの意思があるときだけ評価し、判定を commit status として報告する。
 - **public mode:** fork からのプルリクエストを受けるリポジトリ向けのゲートモード。起動したイベントごとに評価し、判定をゲートのジョブの結果として報告する。
 - **マージの意思（merge intent）:** private mode で、誰かがそのプルリクエストをマージしたいことを示す合図。auto-merge が有効であるか、書き込み権限のあるレビュアーの有効な Approve レビューがあること。
+- **スタック（stack）:** GitHub が順番につなげて扱うプルリクエストの組。それぞれが1つ下のプルリクエストを土台にする。private mode では、スタック内のプルリクエストをマージの意思なしでポーリングできる。
 - **context:** private mode が書き込む commit status の名前。必須チェックと同じにする。
 - **check run:** GitHub の Checks API でコミットに報告される1つの結果。たとえば GitHub Actions のワークフローの1ジョブや、GitHub App の1つのチェック。
 - **集約した判定:** 先頭コミットの check run からゲートが導く1つの結果。`success` か `failure`。

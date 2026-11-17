@@ -59,7 +59,8 @@ const run = async (): Promise<void> => {
     ignoreChecks: core.getInput('ignore-checks'),
     gateMode: core.getInput('gate-mode'),
     token: core.getInput('token'),
-    pollIntervalSeconds: core.getInput('poll-interval-seconds')
+    pollIntervalSeconds: core.getInput('poll-interval-seconds'),
+    pollOnStackedPullRequests: core.getInput('poll-on-stacked-pull-requests')
   })
 
   const context = buildContext()

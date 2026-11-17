@@ -201,6 +201,80 @@ describe('runPrivate', () => {
     })
   })
 
+  describe('stacked pull request', () => {
+    const stack = { number: 50, position: 1, size: 2 }
+    const captureReviewLookups = (): { count: number } => {
+      const lookups = { count: 0 }
+      server.use(
+        http.get(`${BASE}/repos/:owner/:repo/pulls/:number/reviews`, () => {
+          lookups.count += 1
+          return HttpResponse.json([])
+        })
+      )
+      return lookups
+    }
+
+    it.each(['stacked', 'synchronize'])(
+      '%s with poll-on-stacked-pull-requests on → POST to /statuses without merge intent or a review lookup',
+      async (action) => {
+        const postBodies: Array<Record<string, unknown>> = []
+        const postShas: string[] = []
+        captureStatusPosts(postBodies, postShas)
+        const lookups = captureReviewLookups()
+
+        const deps = buildDeps({
+          eventName: 'pull_request',
+          action,
+          pr: { number: 1, head: { sha: 'sha-head' }, auto_merge: null, stack }
+        })
+
+        await runPrivate(deps, buildInputs({ pollOnStackedPullRequests: true }))
+
+        expect(postShas).toEqual(['sha-head'])
+        expect(postBodies[0]).toMatchObject({
+          state: 'success',
+          context: 'automerge-gate/all-passed'
+        })
+        expect(lookups.count).toBe(0)
+      }
+    )
+
+    it('synchronize with poll-on-stacked-pull-requests off → no POST', async () => {
+      const postBodies: Array<Record<string, unknown>> = []
+      captureStatusPosts(postBodies, [])
+
+      const deps = buildDeps({
+        eventName: 'pull_request',
+        action: 'synchronize',
+        pr: { number: 1, head: { sha: 'sha-head' }, auto_merge: null, stack }
+      })
+
+      await runPrivate(deps, buildInputs())
+
+      expect(postBodies).toHaveLength(0)
+    })
+
+    it('synchronize on a PR outside a stack with the option on → no POST', async () => {
+      const postBodies: Array<Record<string, unknown>> = []
+      captureStatusPosts(postBodies, [])
+
+      const deps = buildDeps({
+        eventName: 'pull_request',
+        action: 'synchronize',
+        pr: {
+          number: 1,
+          head: { sha: 'sha-head' },
+          auto_merge: null,
+          stack: null
+        }
+      })
+
+      await runPrivate(deps, buildInputs({ pollOnStackedPullRequests: true }))
+
+      expect(postBodies).toHaveLength(0)
+    })
+  })
+
   it('pull_request_review.submitted approved by write-permission user → POST to /statuses', async () => {
     const postBodies: Array<Record<string, unknown>> = []
     const postShas: string[] = []
