@@ -80,7 +80,7 @@ Scenario: When the gate skips in private mode, the step summary shows the skip w
 
 - Given: The gate runs in private mode on a push without merge intent.
 - When: The gate skips.
-- Then: The step summary has the heading `🟡 automerge-gate: skipped`, a table with zero counts, and no "Check results" section.
+- Then: The step summary has the heading `🟡 automerge-gate: skipped`, a table whose `gate-mode` row is `private` and whose counts are zero, and no "Check results" section.
 
 ## KPIs
 
@@ -145,14 +145,14 @@ Polling ends only when no check is pending, so this is not expected to happen.
 **Output:**
 
 - A heading `<emoji> automerge-gate: <state>`, with `✅` for `success`, `❌` for `failure`, and `🟡` otherwise.
-- A table with the rows: the mode, the state, total checks before exclusions, evaluated checks, completed checks, and polling iterations.
+- A table with the rows: `gate-mode`, the state, total checks before exclusions, evaluated checks, completed checks, and polling iterations.
 - A "Check results" section with `❌ Failed (N)` and `✅ Passed (M)` lists, each line `` `name` — label ``. Empty lists are omitted, and the section is omitted when both are empty.
 
 #### Applicable conditions
 
 ##### Mode row
 
-In private mode the row is labelled `action mode` and shows `polling` or `skip`. In public mode it is labelled `gate-mode` and shows `public`.
+The `gate-mode` row shows `private` or `public`. Whether private mode polled or skipped is read from the state row.
 
 ### Other log lines
 
@@ -188,4 +188,4 @@ Check names come from workflows and GitHub Apps and are shown as they are. Anyon
 
 ## Open questions
 
-- **Unconfirmed: the label of the mode row.** The step summary's mode row is `action mode` in private mode and `gate-mode` in public mode. Whether the difference is intended is not recorded. azu decides.
+None.

@@ -4,6 +4,7 @@ import type { RunDeps } from './run-deps.js'
 import {
   fetchAllCheckRuns,
   fetchWorkflowRuns,
+  checkWorkflowRunsReadable,
   MISSING_ACTIONS_READ_MESSAGE,
   createWorkflowPathLookup
 } from './api.js'
@@ -106,17 +107,18 @@ export const runPublic = async (
     }
   }
 
-  // Fail fast when the token cannot list workflow runs: without them the
-  // gate cannot tell a replaced run's cancellation from a real one, and
-  // polling would otherwise retry the permission error until timeout.
-  const workflowRunsProbe = await fetchWorkflowRuns(
+  // Fail fast when the workflow runs cannot be listed (missing permission
+  // or rate limit): without them the gate cannot tell a replaced run's
+  // cancellation from a real one, and polling would otherwise retry the
+  // error until timeout.
+  const workflowRunsFailure = await checkWorkflowRunsReadable(
     octokit,
     context.owner,
     context.repo,
     sha
-  ).catch(() => undefined)
-  if (workflowRunsProbe === null) {
-    core.setFailed(MISSING_ACTIONS_READ_MESSAGE)
+  )
+  if (workflowRunsFailure !== null) {
+    core.setFailed(workflowRunsFailure)
     return
   }
 

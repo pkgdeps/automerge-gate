@@ -47,7 +47,7 @@ Scenario: When a commit is pushed without merge intent, no commit status is writ
 
 - Given: The gate runs in private mode, auto-merge is off, and the pull request has no active Approve review from a reviewer with write access.
 - When: A commit is pushed to the pull request.
-- Then: The gate job succeeds without polling, no commit status is written, and the step summary shows the state `skipped`.
+- Then: The gate job succeeds without polling, no commit status is written, and the step summary and the `state` output show `skipped`.
 
 Scenario: When a commit is pushed while auto-merge is enabled, the new head commit is evaluated
 
@@ -139,11 +139,11 @@ Scenario: When the token cannot list workflow runs, the job fails before polling
 - When: The gate starts.
 - Then: The job fails with a message that names `actions: read`, and in private mode no commit status is written.
 
-Scenario: When the workflow is started by an event other than a pull request event, the gate does nothing
+Scenario: When the workflow is started by an event other than a pull request event, the job fails
 
-- Given: The gate workflow is started by `push`.
+- Given: The gate workflow is started by `push`, in either gate mode.
 - When: The gate starts.
-- Then: The job log shows a warning that only `pull_request` and `pull_request_review` are handled, nothing is polled or written, and the job succeeds.
+- Then: The job fails with a message that only `pull_request` and `pull_request_review` are handled and that names `push`, and nothing is polled or written.
 
 ## KPIs
 
@@ -165,7 +165,9 @@ None. No measurement of this feature is recorded.
 
 **Input:** The event that started the workflow.
 
-**Output:** For any other event the gate logs a warning and ends without failing the job. When the event carries no pull request, the job fails.
+**Output:** For any other event the job fails with a message that names the event, and nothing is polled or written. When the event carries no pull request, the job fails.
+
+A gate that did nothing must not look like a gate that passed: in public mode a job that ends successfully is a passing required check. There is no use for the gate outside pull request events.
 
 ### Merge intent decision in private mode
 
@@ -210,7 +212,7 @@ Pushes to a pull request that already has an active Approve review still count a
 
 ##### Skip
 
-When the gate skips, the job succeeds, no commit status is written, no action output is set, and the step summary shows the state `skipped`.
+When the gate skips, the job succeeds, no commit status is written, and the step summary shows the state `skipped`. The `state` output is `skipped` and the count outputs are `0`.
 The required check keeps whatever state the head commit already has. On a new head commit that is GitHub's "Expected — Waiting for status to be reported", which blocks merging.
 
 ### Verdict reporting in private mode
@@ -295,5 +297,4 @@ The token is used only to read checks, workflow runs, reviews, and permissions, 
 
 ## Open questions
 
-- **Unconfirmed: the `state` output on skip.** The README and the action's metadata list `skipped` as a value of the `state` output, but the gate sets no output when it skips. Whether the output should be set is undecided; this document describes the current behavior. azu decides.
-- **Unconfirmed: unsupported events in public mode.** When the gate is started by an event other than `pull_request` or `pull_request_review`, the job succeeds, and in public mode a successful job is a passing required check. Whether that is intended is not recorded. azu decides.
+None.

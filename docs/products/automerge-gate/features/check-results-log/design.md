@@ -60,7 +60,7 @@ Pending checks are counted and reported as a warning by the runner.
 They cannot occur after a loop that only ends without pending checks, so the count is a guard against a future change to the loop.
 
 The summary is written by a helper in the private runner and inline in the public runner.
-The two differ in the label of the mode row, as recorded in the Requirements' open questions.
+Both write the same rows, and the `gate-mode` row is the only one whose value depends on the mode.
 
 ## Architecture and sequence diagrams
 
@@ -117,4 +117,4 @@ Annotations and error messages are not copied. They are available on GitHub's pa
 
 ## Open questions
 
-None beyond those in the [Requirements](requirements.md#open-questions).
+None.

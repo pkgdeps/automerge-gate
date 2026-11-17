@@ -395,5 +395,32 @@ describe('runPublic', () => {
       expect(String(setFailedSpy.mock.calls[0][0])).toContain('actions: read')
       expect(checkRunsCalls).toBe(0)
     })
+
+    it('rate limited → fails before polling with a rate limit message', async () => {
+      const setFailedSpy = vi
+        .spyOn(core, 'setFailed')
+        .mockImplementation(() => {})
+      let checkRunsCalls = 0
+      useReplacedRun(() =>
+        HttpResponse.json(
+          { message: 'You have exceeded a secondary rate limit.' },
+          { status: 403, headers: { 'retry-after': '60' } }
+        )
+      )
+      server.use(
+        http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-runs`, () => {
+          checkRunsCalls++
+          return HttpResponse.json({ total_count: 0, check_runs: [] })
+        })
+      )
+
+      await runPublic(buildDeps(), buildInputs({ gateMode: 'public' }))
+
+      expect(setFailedSpy).toHaveBeenCalledTimes(1)
+      const message = String(setFailedSpy.mock.calls[0][0])
+      expect(message).toContain('rate limit')
+      expect(message).not.toContain('actions: read')
+      expect(checkRunsCalls).toBe(0)
+    })
   })
 })

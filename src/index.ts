@@ -6,15 +6,15 @@ import { runPrivate } from './gate-private.js'
 import { runPublic } from './gate-public.js'
 import { parseReviewState } from './mode.js'
 import type { RunContext, RunDeps, RunEnv } from './run-deps.js'
-
-const SUPPORTED_EVENTS = ['pull_request', 'pull_request_review'] as const
+import { isSupportedEvent, unsupportedEventMessage } from './events.js'
 
 const buildContext = (): RunContext | null => {
   const ctx = github.context
-  if (!(SUPPORTED_EVENTS as readonly string[]).includes(ctx.eventName)) {
-    core.warning(
-      `automerge-gate only handles pull_request / pull_request_review events; got "${ctx.eventName}". Skipping.`
-    )
+  if (!isSupportedEvent(ctx.eventName)) {
+    // Fail instead of skipping: in public mode a job that ends successfully
+    // is a passing required check, so a gate that did nothing must not
+    // look like a gate that passed.
+    core.setFailed(unsupportedEventMessage(ctx.eventName))
     return null
   }
   const action = (ctx.payload as { action?: string }).action ?? ''

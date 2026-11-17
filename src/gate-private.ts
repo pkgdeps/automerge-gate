@@ -4,6 +4,7 @@ import type { RunDeps } from './run-deps.js'
 import {
   fetchAllCheckRuns,
   fetchWorkflowRuns,
+  checkWorkflowRunsReadable,
   MISSING_ACTIONS_READ_MESSAGE,
   createWorkflowPathLookup
 } from './api.js'
@@ -31,7 +32,6 @@ import type { AggregatedCheckRun } from './filter.js'
 
 type SummaryInput = {
   state: string
-  mode: string
   total: number
   evaluated: number
   completed: number
@@ -49,7 +49,7 @@ const writeSummary = async (input: SummaryInput): Promise<void> => {
         { data: 'Field', header: true },
         { data: 'Value', header: true }
       ],
-      ['action mode', input.mode],
+      ['gate-mode', 'private'],
       ['state', input.state],
       ['total checks (pre-filter)', String(input.total)],
       ['evaluated checks (post-filter)', String(input.evaluated)],
@@ -124,9 +124,13 @@ export const runPrivate = async (
     // — <reason>"). Don't double-log it as a warning: drive-by reviews
     // and other expected skips would otherwise raise yellow ⚠ icons in
     // the workflow run UI for a non-issue.
+    core.setOutput('state', 'skipped')
+    core.setOutput('total-checks', '0')
+    core.setOutput('evaluated-checks', '0')
+    core.setOutput('completed-checks', '0')
+    core.setOutput('polled-iterations', '0')
     await writeSummary({
       state: 'skipped',
-      mode: 'skip',
       total: 0,
       evaluated: 0,
       completed: 0,
@@ -192,17 +196,18 @@ export const runPrivate = async (
     }
   }
 
-  // Fail fast when the token cannot list workflow runs: without them the
-  // gate cannot tell a replaced run's cancellation from a real one, and
-  // polling would otherwise retry the permission error until timeout.
-  const workflowRunsProbe = await fetchWorkflowRuns(
+  // Fail fast when the workflow runs cannot be listed (missing permission
+  // or rate limit): without them the gate cannot tell a replaced run's
+  // cancellation from a real one, and polling would otherwise retry the
+  // error until timeout.
+  const workflowRunsFailure = await checkWorkflowRunsReadable(
     octokit,
     owner,
     repo,
     sha
-  ).catch(() => undefined)
-  if (workflowRunsProbe === null) {
-    core.setFailed(MISSING_ACTIONS_READ_MESSAGE)
+  )
+  if (workflowRunsFailure !== null) {
+    core.setFailed(workflowRunsFailure)
     return
   }
 
@@ -279,7 +284,6 @@ export const runPrivate = async (
 
   await writeSummary({
     state: pollResult.state,
-    mode: 'polling',
     total: lastTotal,
     evaluated: lastEvaluated,
     completed: lastCompleted,

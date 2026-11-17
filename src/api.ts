@@ -150,10 +150,41 @@ export const createWorkflowPathLookup = (
 export const MISSING_ACTIONS_READ_MESSAGE =
   'cannot list workflow runs for this SHA. automerge-gate requires `actions: read` in the job permissions.'
 
+// Thrown when GitHub refuses a request because of a rate limit, so callers
+// can report it as such instead of as a missing permission.
+export class RateLimitError extends Error {
+  constructor(detail: string) {
+    super(
+      `GitHub API rate limit reached while listing workflow runs for this SHA: ${detail}`
+    )
+    this.name = 'RateLimitError'
+  }
+}
+
+// GitHub answers a rate-limited request with 403 or 429. A primary limit
+// sets `x-ratelimit-remaining: 0`; a secondary limit sets `retry-after` or
+// says "rate limit" in the message.
+// https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
+export const isRateLimitError = (err: unknown): boolean => {
+  const e = err as {
+    status?: number
+    message?: string
+    response?: { headers?: Record<string, string | number | undefined> }
+  }
+  if (e.status === 429) return true
+  if (e.status !== 403) return false
+  const headers = e.response?.headers ?? {}
+  if (String(headers['x-ratelimit-remaining']) === '0') return true
+  if (headers['retry-after'] !== undefined) return true
+  return /rate limit/i.test(e.message ?? '')
+}
+
 // Lists the GitHub Actions workflow runs for the SHA. Used to recognise
 // runs that a newer run of the same workflow replaced (see replaced-runs.ts).
 // Returns null when the token cannot read the Actions API (4xx, usually a
-// missing `actions: read`) so the gate can fail with a clear message.
+// missing `actions: read`) so the gate can fail with a clear message. A
+// rate-limited request throws RateLimitError instead, because it says
+// nothing about the permission.
 // 5xx errors are retried and then thrown, like the check_run fetch, so the
 // polling loop retries the whole iteration.
 export const fetchWorkflowRuns = async (
@@ -196,9 +227,32 @@ export const fetchWorkflowRuns = async (
       html_url: r.html_url
     }))
   } catch (err) {
+    if (isRateLimitError(err)) {
+      throw new RateLimitError(err instanceof Error ? err.message : String(err))
+    }
     const status = (err as { status?: number }).status
     if (status !== undefined && status < 500) return null
     throw err
+  }
+}
+
+// Checks, before polling starts, that the workflow runs for the SHA can be
+// listed. Returns the message to fail the job with, or null when polling
+// can start. Without this check a missing permission or a rate limit would
+// be retried as a failed poll until the job timed out. Other errors (5xx)
+// return null: the polling loop retries them.
+export const checkWorkflowRunsReadable = async (
+  octokit: OctokitLike,
+  owner: string,
+  repo: string,
+  sha: string
+): Promise<string | null> => {
+  try {
+    const runs = await fetchWorkflowRuns(octokit, owner, repo, sha)
+    return runs === null ? MISSING_ACTIONS_READ_MESSAGE : null
+  } catch (err) {
+    if (err instanceof RateLimitError) return err.message
+    return null
   }
 }
 

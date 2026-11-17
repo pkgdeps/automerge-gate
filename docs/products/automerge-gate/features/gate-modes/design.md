@@ -24,12 +24,13 @@ Log and summary output belongs to [Check results log](../check-results-log/requi
 
 The action is a single JavaScript action that runs as one step of one job.
 Its entry point parses the inputs, reads the pull request from the event, and hands over to one of two runners, one per gate mode.
+When the event is not a pull request event, the entry point fails the job before either runner starts, so an unsupported trigger cannot end as a successful job.
 Both runners share the same polling and aggregation and differ only in what happens before and after it.
 
 The private runner first decides between polling and skipping.
 The decision itself is a pure function of the event, the activity type, the review state, whether auto-merge is enabled, and whether an active Approve review from a reviewer with write access exists.
 The runner gathers those facts, calling the reviews API only when the answer depends on it: on an event that brings a new head commit while auto-merge is off, and on a review event.
-A skip writes the step summary and returns. Otherwise the runner polls, writes the commit status, sets the outputs, and fails the job when the verdict is `failure`.
+A skip sets the outputs to `skipped` with zero counts, writes the step summary, and returns. Otherwise the runner polls, writes the commit status, sets the outputs, and fails the job when the verdict is `failure`.
 
 The public runner has no decision step.
 It polls, sets the outputs, and fails the job when the verdict is `failure`; the job's result is the report.
@@ -200,4 +201,4 @@ No record of an evaluation remains beyond its listing as a later idea. Public mo
 
 ## Open questions
 
-None beyond those in the [Requirements](requirements.md#open-questions).
+None.
