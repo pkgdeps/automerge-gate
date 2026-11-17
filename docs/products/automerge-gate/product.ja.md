@@ -16,6 +16,9 @@ automerge-gate は、プルリクエストに付くすべてのチェックを1�
 GitHub の ruleset とブランチ保護は、必須のステータスチェックを1つずつ名前で登録させ、登録したチェックを AND だけで組み合わせます。
 auto-merge は、その一覧にあるチェックだけを待ちます（[Automatically merging a pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/automatically-merging-a-pull-request)）。
 
+この一覧を避ける方法の1つが merge-gatekeeper です。プルリクエストのチェックをポーリングし、1つの結果を報告するアクションです。
+automerge-gate を作ったのは、merge-gatekeeper がメンテナンスされなくなっていて、ときどき失敗していたためです。また、merge-gatekeeper はすべてのプルリクエストを push のたびにポーリングし、誰もマージするつもりがなくても、そのたびに10分ほど runner を占有するためです。
+
 このプロジェクトの最初の版である check-suite-gate は、`check_suite.completed` に反応することで、ポーリングなしにチェックをまとめようとしました。
 しかし GitHub Actions は、GitHub Actions 自身が作った check suite ではワークフローを起動しません。そのため、GitHub Actions だけを使うリポジトリではこの設計は一度も動きませんでした。
 automerge-gate はこれを、その制限がないプルリクエストのイベントで起動するポーリング型のアクションに置き換えたものです。
@@ -28,9 +31,12 @@ automerge-gate はこれを、その制限がないプルリクエストのイ�
 - monorepo は path filter を使うため、あるワークフローがプルリクエストによって動いたり現れなかったりする。
 - ワークフローファイルを足すたびに ruleset を書き換える必要がある。
 
-チェックを1つにまとめる既存の方法にも、それぞれ負担があります。
-alls-green のように1つのワークフローの中でまとめるジョブは、ほかのワークフローファイルのジョブを見られません。
-merge-gatekeeper のようにプルリクエストのイベントごとにポーリングするアクションは、マージするつもりがあるかどうかに関係なく、push のたびに runner を占有します。
+すでに merge-gatekeeper でチェックをまとめているメンテナには、さらに2つの課題があります。
+
+- ゲート自体がときどき失敗し、直されない。チェックが通っているプルリクエストがブロックされたままになることがある。
+- 誰かがマージするつもりかどうかに関係なく、すべてのプルリクエストへの push のたびに、チェックが終わるまで runner を占有する。
+
+alls-green のように1つのワークフローの中でまとめるジョブでも、これは解決しません。ほかのワークフローファイルのジョブを見られないためです。
 
 ## ターゲットエンドユーザー
 
@@ -118,4 +124,4 @@ private mode では、マージの意思がないプルリクエストは runner
 
 ## 未決事項
 
-- **未確認: 目的と利用者。** この文書の背景、課題、利用者、提供価値は、README と `docs/architecture.md` から採ったものであり、今もプロダクトの目的を表しているかについて azu の確認を待っている。確認までは、作業上の説明として扱う。azu が決める。
+なし。

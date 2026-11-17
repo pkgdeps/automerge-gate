@@ -16,6 +16,9 @@ GitHub's native auto-merge merges the pull request once that required check is g
 GitHub's rulesets and branch protection ask a repository to list each required status check by name, and they combine the listed checks with AND only.
 Auto-merge then waits for exactly the checks on that list ([Automatically merging a pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/automatically-merging-a-pull-request)).
 
+One way to avoid that list is merge-gatekeeper, an action that polls the checks of a pull request and reports one result.
+automerge-gate was made because merge-gatekeeper was no longer maintained and failed from time to time, and because it polls every pull request on every push, which holds a runner for around ten minutes each time even when nobody intends to merge.
+
 The first version of this project, check-suite-gate, tried to aggregate checks without polling by reacting to `check_suite.completed`.
 GitHub Actions does not start workflows for check suites that GitHub Actions itself created, so that design never ran in repositories that use only GitHub Actions.
 automerge-gate replaced it with a polling action started by pull request events, which have no such restriction.
@@ -28,9 +31,12 @@ A maintainer who lists required checks by name has to keep the list in step with
 - Monorepos use path filters, so a workflow runs on some pull requests and is absent on others.
 - Adding a workflow file means rewriting the ruleset.
 
-Existing ways to aggregate checks into one have their own costs.
-An aggregation job inside one workflow, such as alls-green, cannot see jobs in other workflow files.
-A polling action that runs on every pull request event, such as merge-gatekeeper, occupies a runner for every push whether or not anyone intends to merge.
+A maintainer who already aggregates checks with merge-gatekeeper has two further problems.
+
+- The gate itself fails from time to time and is not being fixed, so a pull request whose checks pass can stay blocked.
+- Every push to every pull request holds a runner until its checks finish, whether or not anyone intends to merge.
+
+An aggregation job inside one workflow, such as alls-green, does not solve this either, because it cannot see jobs in other workflow files.
 
 ## Target users
 
@@ -118,4 +124,4 @@ None. The project does not collect measurements from the repositories that use t
 
 ## Open questions
 
-- **Unconfirmed: purpose and target users.** The background, problems, target users, and value in this document were taken from the README and `docs/architecture.md` and are waiting for azu's confirmation that they still describe the product's purpose. Until then, treat them as the working description. azu decides.
+None.
