@@ -6,17 +6,23 @@ on:
   pull_request_review:
     types: [submitted]
 
+# Public mode: GITHUB_TOKEN is read-only on fork PRs, so the gate signal is
+# this job's own check_run (its `name:` is the required check), not a commit
+# status written through the API.
 permissions:
-  statuses: write
   checks: read
   pull-requests: read
   actions: read
 
 jobs:
   gate:
-    if: >-
-      github.event_name != 'pull_request_review'
-      || github.event.review.state == 'approved'
+    # Must match the required check in the main ruleset.
+    name: automerge-gate/self-test
+    # No job-level `if:` on purpose. A skipped job reports "Success" to the
+    # required check, so skipping non-approve reviews would let a plain
+    # comment review pass the gate. Every review polls instead.
+    # `pull_request_review` stays because release PRs opened by GITHUB_TOKEN
+    # do not start `pull_request` workflows (see docs/RELEASING.md).
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -34,5 +40,4 @@ jobs:
       - name: Self-host gate
         uses: ./
         with:
-          gate-mode: 'private'
-          context: 'automerge-gate/self-test'
+          gate-mode: 'public'
