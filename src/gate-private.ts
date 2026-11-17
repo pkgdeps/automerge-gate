@@ -102,7 +102,7 @@ export const runPrivate = async (
   const isHeadShaEvent = isHeadShaAction(action)
   // `pr.stack` is absent on hosts without stacked pull requests.
   const isStackPolling =
-    inputs.pollStackedPullRequests &&
+    inputs.pollOnStackedPullRequests &&
     pr.stack !== undefined &&
     pr.stack !== null
   // A stacked PR polls regardless of merge intent, so the Approve

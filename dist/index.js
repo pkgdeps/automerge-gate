@@ -24870,9 +24870,9 @@ var parseInputs = (raw) => {
       raw.pollIntervalSeconds,
       "poll-interval-seconds"
     ),
-    pollStackedPullRequests: parseBoolean(
-      raw.pollStackedPullRequests,
-      "poll-stacked-pull-requests"
+    pollOnStackedPullRequests: parseBoolean(
+      raw.pollOnStackedPullRequests,
+      "poll-on-stacked-pull-requests"
     )
   };
 };
@@ -25258,7 +25258,7 @@ var determineMode = (input) => {
   if (isStackPolling && (isHeadShaEvent || action === STACKED_ACTION)) {
     return {
       mode: "polling",
-      reason: `PR is in a stack and poll-stacked-pull-requests is on (action=${action}) \u2014 auto-merge on a stack sends no auto_merge_enabled event, so polling without waiting for merge intent`
+      reason: `PR is in a stack and poll-on-stacked-pull-requests is on (action=${action}) \u2014 auto-merge on a stack sends no auto_merge_enabled event, so polling without waiting for merge intent`
     };
   }
   if (isHeadShaEvent) {
@@ -25462,7 +25462,7 @@ var runPrivate = async (deps, inputs) => {
     runAttempt
   });
   const isHeadShaEvent = isHeadShaAction(action);
-  const isStackPolling = inputs.pollStackedPullRequests && pr.stack !== void 0 && pr.stack !== null;
+  const isStackPolling = inputs.pollOnStackedPullRequests && pr.stack !== void 0 && pr.stack !== null;
   const needsApprovalLookup = isHeadShaEvent && pr.auto_merge === null && !isStackPolling || eventName === "pull_request_review";
   const isApproved = needsApprovalLookup ? await hasActiveApproval(octokit, owner, repo, pr.number) : false;
   const { mode, reason } = determineMode({
@@ -25788,7 +25788,7 @@ var run = async () => {
     gateMode: core5.getInput("gate-mode"),
     token: core5.getInput("token"),
     pollIntervalSeconds: core5.getInput("poll-interval-seconds"),
-    pollStackedPullRequests: core5.getInput("poll-stacked-pull-requests")
+    pollOnStackedPullRequests: core5.getInput("poll-on-stacked-pull-requests")
   });
   const context2 = buildContext();
   if (context2 === null) return;

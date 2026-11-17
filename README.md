@@ -211,7 +211,7 @@ Open Settings → General → Pull Requests and tick **Allow auto-merge**. Witho
 | `context`               | no       | `automerge-gate/all-passed` | Aggregated commit status context. **`gate-mode: private` only** — must match the required check in your ruleset. Ignored when `gate-mode: public` (the job name is the signal).                                                                                                                                      |
 | `poll-interval-seconds` | no       | `30`                        | How often to re-fetch check status                                                                                                                                                                                                                                                                                   |
 | `ignore-checks`         | no       | `[]`                        | JSONC array of rules to exclude check_runs from aggregation. Each rule is `{ app?, workflow?, name? }`; fields are AND-evaluated and every field is a glob (`*` / `?`). See [Examples](#examples).                                                                                                                   |
-| `poll-stacked-pull-requests` | no  | `false`                     | **`gate-mode: private` only.** `true` = a pull request in a GitHub stack polls on every `opened` / `synchronize` / `reopened` / `stacked` event, without waiting for merge intent. See [Stacked pull requests](#stacked-pull-requests). Ignored when `gate-mode: public` (it always polls). |
+| `poll-on-stacked-pull-requests` | no  | `false`                     | **`gate-mode: private` only.** `true` = a pull request in a GitHub stack polls on every `opened` / `synchronize` / `reopened` / `stacked` event, without waiting for merge intent. See [Stacked pull requests](#stacked-pull-requests). Ignored when `gate-mode: public` (it always polls). |
 | `token`                 | no       | `${{ github.token }}`       | GitHub token used to read checks and (when permitted) write the aggregated commit status                                                                                                                                                                                                                             |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
@@ -317,7 +317,7 @@ The command covers **check_runs only** — the data source `ignore-checks` filte
 
 Private mode waits for merge intent before it polls. For a pull request in a [GitHub stack](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/merging-stacked-pull-requests), that signal never arrives: enabling auto-merge on a stack records `auto_merge_enabled` in the pull request timeline, but GitHub does not deliver the `pull_request.auto_merge_enabled` event to webhooks or to GitHub Actions (observed on 2026-11-17, see [#46](https://github.com/pkgdeps/automerge-gate/issues/46)). The required check stays at `Expected` and the stack cannot merge.
 
-Set `poll-stacked-pull-requests: 'true'` to make every pull request in a stack poll without waiting for merge intent, and add `stacked` to the workflow's activity types:
+Set `poll-on-stacked-pull-requests: 'true'` to make every pull request in a stack poll without waiting for merge intent, and add `stacked` to the workflow's activity types:
 
 ```yaml
 on:
@@ -330,7 +330,7 @@ on:
       - uses: pkgdeps/automerge-gate@v5.0.5
         with:
           gate-mode: 'private'
-          poll-stacked-pull-requests: 'true'
+          poll-on-stacked-pull-requests: 'true'
 ```
 
 - `stacked` is required. `pull_request.opened` never carries the `stack` object, because a pull request joins a stack after it is created. Without `stacked`, a pull request that is stacked and never pushed again gets no status.

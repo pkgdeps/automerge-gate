@@ -90,7 +90,7 @@ describe('determineMode', () => {
     })
   })
 
-  describe('stacked pull request (poll-stacked-pull-requests on)', () => {
+  describe('stacked pull request (poll-on-stacked-pull-requests on)', () => {
     it.each(['opened', 'synchronize', 'reopened'])(
       '%s without auto-merge or approval → polling',
       (action) => {

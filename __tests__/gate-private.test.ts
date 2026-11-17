@@ -215,7 +215,7 @@ describe('runPrivate', () => {
     }
 
     it.each(['stacked', 'synchronize'])(
-      '%s with poll-stacked-pull-requests on → POST to /statuses without merge intent or a review lookup',
+      '%s with poll-on-stacked-pull-requests on → POST to /statuses without merge intent or a review lookup',
       async (action) => {
         const postBodies: Array<Record<string, unknown>> = []
         const postShas: string[] = []
@@ -228,7 +228,7 @@ describe('runPrivate', () => {
           pr: { number: 1, head: { sha: 'sha-head' }, auto_merge: null, stack }
         })
 
-        await runPrivate(deps, buildInputs({ pollStackedPullRequests: true }))
+        await runPrivate(deps, buildInputs({ pollOnStackedPullRequests: true }))
 
         expect(postShas).toEqual(['sha-head'])
         expect(postBodies[0]).toMatchObject({
@@ -239,7 +239,7 @@ describe('runPrivate', () => {
       }
     )
 
-    it('synchronize with poll-stacked-pull-requests off → no POST', async () => {
+    it('synchronize with poll-on-stacked-pull-requests off → no POST', async () => {
       const postBodies: Array<Record<string, unknown>> = []
       captureStatusPosts(postBodies, [])
 
@@ -269,7 +269,7 @@ describe('runPrivate', () => {
         }
       })
 
-      await runPrivate(deps, buildInputs({ pollStackedPullRequests: true }))
+      await runPrivate(deps, buildInputs({ pollOnStackedPullRequests: true }))
 
       expect(postBodies).toHaveLength(0)
     })

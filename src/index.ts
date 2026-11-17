@@ -60,7 +60,7 @@ const run = async (): Promise<void> => {
     gateMode: core.getInput('gate-mode'),
     token: core.getInput('token'),
     pollIntervalSeconds: core.getInput('poll-interval-seconds'),
-    pollStackedPullRequests: core.getInput('poll-stacked-pull-requests')
+    pollOnStackedPullRequests: core.getInput('poll-on-stacked-pull-requests')
   })
 
   const context = buildContext()

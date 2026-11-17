@@ -98,7 +98,7 @@ export type DetermineModeInput = {
    */
   isApproved: boolean
   /**
-   * `true` when the `poll-stacked-pull-requests` input is on and the
+   * `true` when the `poll-on-stacked-pull-requests` input is on and the
    * PR belongs to a GitHub stack (`pull_request.stack` is set).
    * GitHub does not deliver `pull_request.auto_merge_enabled` for a
    * stack, so the gate cannot wait for that signal and polls on every
@@ -137,7 +137,7 @@ export type DetermineModeResult = {
 // the work is identical.
 //
 // A PR in a GitHub stack is the exception when the
-// `poll-stacked-pull-requests` input is on: enabling auto-merge on a
+// `poll-on-stacked-pull-requests` input is on: enabling auto-merge on a
 // stack delivers no `auto_merge_enabled` event, so there is no signal
 // to wait for. Such a PR polls on every HEAD SHA event and on
 // `stacked` (the PR joined a stack), like `gate-mode: public` does.
@@ -187,7 +187,7 @@ export const determineMode = (
   if (isStackPolling && (isHeadShaEvent || action === STACKED_ACTION)) {
     return {
       mode: 'polling',
-      reason: `PR is in a stack and poll-stacked-pull-requests is on (action=${action}) — auto-merge on a stack sends no auto_merge_enabled event, so polling without waiting for merge intent`
+      reason: `PR is in a stack and poll-on-stacked-pull-requests is on (action=${action}) — auto-merge on a stack sends no auto_merge_enabled event, so polling without waiting for merge intent`
     }
   }
   if (isHeadShaEvent) {

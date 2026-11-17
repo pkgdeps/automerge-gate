@@ -11,7 +11,7 @@ const raw = (override: Partial<RawInputs> = {}): RawInputs => ({
   gateMode: 'private',
   token: 'tok',
   pollIntervalSeconds: '30',
-  pollStackedPullRequests: 'false',
+  pollOnStackedPullRequests: 'false',
   ...override
 })
 
@@ -53,23 +53,23 @@ describe('parseInputs', () => {
     expect(parseInputs(raw({ gateMode: 'public' })).gateMode).toBe('public')
   })
 
-  it('parses poll-stacked-pull-requests as a boolean', () => {
+  it('parses poll-on-stacked-pull-requests as a boolean', () => {
     expect(
-      parseInputs(raw({ pollStackedPullRequests: 'true' }))
-        .pollStackedPullRequests
+      parseInputs(raw({ pollOnStackedPullRequests: 'true' }))
+        .pollOnStackedPullRequests
     ).toBe(true)
     expect(
-      parseInputs(raw({ pollStackedPullRequests: 'false' }))
-        .pollStackedPullRequests
+      parseInputs(raw({ pollOnStackedPullRequests: 'false' }))
+        .pollOnStackedPullRequests
     ).toBe(false)
   })
 
-  it('throws on a poll-stacked-pull-requests value other than true / false', () => {
-    expect(() => parseInputs(raw({ pollStackedPullRequests: 'yes' }))).toThrow(
-      /poll-stacked-pull-requests/
-    )
-    expect(() => parseInputs(raw({ pollStackedPullRequests: '' }))).toThrow(
-      /poll-stacked-pull-requests/
+  it('throws on a poll-on-stacked-pull-requests value other than true / false', () => {
+    expect(() =>
+      parseInputs(raw({ pollOnStackedPullRequests: 'yes' }))
+    ).toThrow(/poll-on-stacked-pull-requests/)
+    expect(() => parseInputs(raw({ pollOnStackedPullRequests: '' }))).toThrow(
+      /poll-on-stacked-pull-requests/
     )
   })
 
