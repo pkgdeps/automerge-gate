@@ -117,6 +117,12 @@ Scenario: When a commit is pushed to a pull request in a stack, the new head com
 - When: A commit is pushed to the pull request.
 - Then: The gate polls the checks of the new head commit and writes a commit status on that commit.
 
+Scenario: When auto-merge is enabled on a stack while the gate is polling, the stack merges after the verdict
+
+- Given: The gate runs in private mode with `poll-on-stacked-pull-requests: 'true'`, every pull request in a stack is polling, and one check is still running.
+- When: A maintainer enables auto-merge on the stack, and the running check later passes.
+- Then: The gate writes a `success` commit status on each head commit, and GitHub merges the stack without the gate being started again.
+
 Scenario: When a pull request is opened and is not in a stack yet, the gate skips
 
 - Given: The gate runs in private mode with `poll-on-stacked-pull-requests: 'true'`, and auto-merge is off.
@@ -360,5 +366,4 @@ The token is used only to read checks, workflow runs, reviews, and permissions, 
 
 ## Open questions
 
-- **Unconfirmed: merging a stack through auto-merge.** With `poll-on-stacked-pull-requests` on, every pull request in a stack got a `success` commit status and became mergeable in the trial, but merging the stack with auto-merge from GitHub's UI has not been observed to the end. azu decides whether to verify it.
-- **Unconfirmed: whether GitHub will deliver `auto_merge_enabled` for a stack.** The workaround assumes the event is not delivered, which was observed once on 2026-11-17. GitHub's documentation does not say whether this is intended or temporary. When the event is delivered, the input can be deprecated; nobody is assigned to re-check. azu decides when to re-check.
+- **Unconfirmed: whether GitHub will deliver `auto_merge_enabled` for a stack.** The workaround assumes the event is not delivered, which was observed twice on 2026-11-17. GitHub's documentation does not say whether this is intended or temporary. When the event is delivered, the input can be deprecated; nobody is assigned to re-check. azu decides when to re-check.
