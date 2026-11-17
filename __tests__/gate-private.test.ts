@@ -55,9 +55,23 @@ describe('runPrivate', () => {
       pr: { number: 1, head: { sha: 'sha-head' }, auto_merge: null }
     })
 
+    const outputs: Record<string, string> = {}
+    vi.spyOn(core, 'setOutput').mockImplementation((name, value) => {
+      outputs[name] = String(value)
+    })
+    const tableSpy = vi.spyOn(core.summary, 'addTable')
+
     await runPrivate(deps, buildInputs())
 
     expect(postBodies).toHaveLength(0)
+    expect(outputs).toEqual({
+      state: 'skipped',
+      'total-checks': '0',
+      'evaluated-checks': '0',
+      'completed-checks': '0',
+      'polled-iterations': '0'
+    })
+    expect(tableSpy.mock.calls[0][0][1]).toEqual(['gate-mode', 'private'])
   })
 
   it('auto_merge_enabled with empty check list → POST to /statuses with state: success', async () => {
@@ -120,6 +134,41 @@ describe('runPrivate', () => {
 
     expect(setFailedSpy).toHaveBeenCalledTimes(1)
     expect(String(setFailedSpy.mock.calls[0][0])).toContain('actions: read')
+    expect(postBodies).toHaveLength(0)
+  })
+
+  it('auto_merge_enabled while rate limited → fails with a rate limit message, no POST', async () => {
+    const setFailedSpy = vi
+      .spyOn(core, 'setFailed')
+      .mockImplementation(() => {})
+    const postBodies: Array<Record<string, unknown>> = []
+    const postShas: string[] = []
+    captureStatusPosts(postBodies, postShas)
+    server.use(
+      http.get(`${BASE}/repos/:owner/:repo/actions/runs`, () =>
+        HttpResponse.json(
+          { message: 'API rate limit exceeded for installation ID 1.' },
+          { status: 403, headers: { 'x-ratelimit-remaining': '0' } }
+        )
+      )
+    )
+
+    const deps = buildDeps({
+      eventName: 'pull_request',
+      action: 'auto_merge_enabled',
+      pr: {
+        number: 1,
+        head: { sha: 'sha-head' },
+        auto_merge: { enabled_by: { login: 'maintainer' } }
+      }
+    })
+
+    await runPrivate(deps, buildInputs())
+
+    expect(setFailedSpy).toHaveBeenCalledTimes(1)
+    const message = String(setFailedSpy.mock.calls[0][0])
+    expect(message).toContain('rate limit')
+    expect(message).not.toContain('actions: read')
     expect(postBodies).toHaveLength(0)
   })
 

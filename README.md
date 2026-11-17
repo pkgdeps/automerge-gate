@@ -333,13 +333,14 @@ The gate lists the workflow runs for the SHA (`GET /repos/{owner}/{repo}/actions
 - The newest run of each workflow is always evaluated, so a run you cancel by hand, with no newer run, still fails the gate.
 - A `push` run and a `pull_request` run of the same workflow are treated as separate and never replace each other.
 - A workflow run that has started but has no jobs yet (the newer run is often in this state for a few seconds) counts as pending, so the gate waits for its jobs instead of reporting success early. Runs of the gate's own workflow file are not waited on. To stop waiting on a workflow whose runs can stay queued (for example on a self-hosted runner), exclude it with a `workflow` rule in `ignore-checks`; a `name` rule only matches once the jobs exist.
-- This needs `actions: read`. When the token cannot list workflow runs, the gate fails with an error that names the missing permission.
+- This needs `actions: read`. When the token cannot list workflow runs, the gate fails with an error that names the missing permission. When GitHub refuses the request because of a rate limit, the error says so instead.
 
 The cases used to verify this on real GitHub are listed in [docs/e2e-test-cases.md](docs/e2e-test-cases.md).
 
 ## Limitations
 
 - **Merge queue (`merge_group`)** is not supported.
+- **Other events**: the gate only handles `pull_request` and `pull_request_review`. Started by any other event (`push`, `pull_request_target`, `merge_group`, ...), the job fails instead of passing without evaluating anything.
 - **Dead runner / job timeout**: the polling job can be killed before it finishes (its `timeout-minutes` fires, the runner dies, and so on). The gate job's check_run then ends as `failure` or `cancelled`. The required check stays red and merge stays blocked. To retry, disable Auto Merge and enable it again.
 - **CIs that only write legacy commit statuses**: GitHub has two CI reporting APIs. Modern CIs (GitHub Actions, Cloudflare Pages, Codecov) use the check_run / check_suite API. Some older or self-hosted CIs (Atlantis, some Jenkins setups) only use the legacy commit-status API. This action only reads the check_run / check_suite side, so a CI that only writes legacy commit statuses is not aggregated. If you depend on such a CI, add it as a separate required check in your ruleset alongside `automerge-gate/all-passed`.
 

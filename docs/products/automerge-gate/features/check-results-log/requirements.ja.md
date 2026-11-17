@@ -80,7 +80,7 @@ Scenario: private mode でゲートがスキップした場合、ステップサ
 
 - Given: ゲートは private mode で、マージの意思がない push に対して動いている。
 - When: ゲートがスキップする。
-- Then: ステップサマリーには、`🟡 automerge-gate: skipped` という見出しと、件数が0の表があり、「Check results」の節はない。
+- Then: ステップサマリーには、`🟡 automerge-gate: skipped` という見出しと、`gate-mode` の行が `private` で件数が0の表があり、「Check results」の節はない。
 
 ## KPI
 
@@ -145,14 +145,14 @@ Scenario: private mode でゲートがスキップした場合、ステップサ
 **出力:**
 
 - 見出し `<絵文字> automerge-gate: <state>`。絵文字は、`success` が `✅`、`failure` が `❌`、それ以外が `🟡`。
-- 次の行を持つ表: モード、state、除外前のチェックの総数、評価したチェックの数、完了したチェックの数、ポーリングの回数。
+- 次の行を持つ表: `gate-mode`、state、除外前のチェックの総数、評価したチェックの数、完了したチェックの数、ポーリングの回数。
 - `❌ Failed (N)` と `✅ Passed (M)` の一覧を持つ「Check results」の節。各行は `` `名前` — ラベル ``。空の一覧は省き、両方が空なら節ごと省く。
 
 #### 適用する条件
 
 ##### モードの行
 
-private mode では、行の名前は `action mode` で、値は `polling` または `skip` である。public mode では、行の名前は `gate-mode` で、値は `public` である。
+`gate-mode` の行の値は `private` または `public` である。private mode がポーリングしたかスキップしたかは、state の行で読む。
 
 ### そのほかのログの行
 
@@ -188,4 +188,4 @@ private mode では、行の名前は `action mode` で、値は `polling` ま�
 
 ## 未決事項
 
-- **未確認: モードの行の名前。** ステップサマリーのモードの行は、private mode では `action mode`、public mode では `gate-mode` である。この違いが意図どおりかは記録がない。azu が決める。
+なし。

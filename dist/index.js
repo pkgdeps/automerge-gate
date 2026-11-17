@@ -19743,10 +19743,10 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       (0, command_1.issueCommand)("error", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
     exports2.error = error;
-    function warning4(message, properties = {}) {
+    function warning3(message, properties = {}) {
       (0, command_1.issueCommand)("warning", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
-    exports2.warning = warning4;
+    exports2.warning = warning3;
     function notice(message, properties = {}) {
       (0, command_1.issueCommand)("notice", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
@@ -24914,6 +24914,23 @@ var createWorkflowPathLookup = (octokit, owner, repo) => {
   };
 };
 var MISSING_ACTIONS_READ_MESSAGE = "cannot list workflow runs for this SHA. automerge-gate requires `actions: read` in the job permissions.";
+var RateLimitError = class extends Error {
+  constructor(detail) {
+    super(
+      `GitHub API rate limit reached while listing workflow runs for this SHA: ${detail}`
+    );
+    this.name = "RateLimitError";
+  }
+};
+var isRateLimitError = (err) => {
+  const e = err;
+  if (e.status === 429) return true;
+  if (e.status !== 403) return false;
+  const headers = e.response?.headers ?? {};
+  if (String(headers["x-ratelimit-remaining"]) === "0") return true;
+  if (headers["retry-after"] !== void 0) return true;
+  return /rate limit/i.test(e.message ?? "");
+};
 var fetchWorkflowRuns = async (octokit, owner, repo, sha) => {
   const listWorkflowRunsForRepo = octokit.rest.actions.listWorkflowRunsForRepo;
   try {
@@ -24936,9 +24953,21 @@ var fetchWorkflowRuns = async (octokit, owner, repo, sha) => {
       html_url: r.html_url
     }));
   } catch (err) {
+    if (isRateLimitError(err)) {
+      throw new RateLimitError(err instanceof Error ? err.message : String(err));
+    }
     const status = err.status;
     if (status !== void 0 && status < 500) return null;
     throw err;
+  }
+};
+var checkWorkflowRunsReadable = async (octokit, owner, repo, sha) => {
+  try {
+    const runs = await fetchWorkflowRuns(octokit, owner, repo, sha);
+    return runs === null ? MISSING_ACTIONS_READ_MESSAGE : null;
+  } catch (err) {
+    if (err instanceof RateLimitError) return err.message;
+    return null;
   }
 };
 var withRetry = async (fn, options) => {
@@ -25389,7 +25418,7 @@ var writeSummary = async (input) => {
       { data: "Field", header: true },
       { data: "Value", header: true }
     ],
-    ["action mode", input.mode],
+    ["gate-mode", "private"],
     ["state", input.state],
     ["total checks (pre-filter)", String(input.total)],
     ["evaluated checks (post-filter)", String(input.evaluated)],
@@ -25429,9 +25458,13 @@ var runPrivate = async (deps, inputs) => {
   core3.info(`Mode: ${mode} \u2014 ${reason}`);
   core3.endGroup();
   if (mode === "skip") {
+    core3.setOutput("state", "skipped");
+    core3.setOutput("total-checks", "0");
+    core3.setOutput("evaluated-checks", "0");
+    core3.setOutput("completed-checks", "0");
+    core3.setOutput("polled-iterations", "0");
     await writeSummary({
       state: "skipped",
-      mode: "skip",
       total: 0,
       evaluated: 0,
       completed: 0,
@@ -25488,14 +25521,14 @@ var runPrivate = async (deps, inputs) => {
       throw err;
     }
   };
-  const workflowRunsProbe = await fetchWorkflowRuns(
+  const workflowRunsFailure = await checkWorkflowRunsReadable(
     octokit,
     owner,
     repo,
     sha
-  ).catch(() => void 0);
-  if (workflowRunsProbe === null) {
-    core3.setFailed(MISSING_ACTIONS_READ_MESSAGE);
+  );
+  if (workflowRunsFailure !== null) {
+    core3.setFailed(workflowRunsFailure);
     return;
   }
   const pollStartedAt = Date.now();
@@ -25546,7 +25579,6 @@ var runPrivate = async (deps, inputs) => {
   core3.setOutput("polled-iterations", String(pollResult.iterations));
   await writeSummary({
     state: pollResult.state,
-    mode: "polling",
     total: lastTotal,
     evaluated: lastEvaluated,
     completed: lastCompleted,
@@ -25628,14 +25660,14 @@ var runPublic = async (deps, inputs) => {
       throw err;
     }
   };
-  const workflowRunsProbe = await fetchWorkflowRuns(
+  const workflowRunsFailure = await checkWorkflowRunsReadable(
     octokit,
     context2.owner,
     context2.repo,
     sha
-  ).catch(() => void 0);
-  if (workflowRunsProbe === null) {
-    core4.setFailed(MISSING_ACTIONS_READ_MESSAGE);
+  );
+  if (workflowRunsFailure !== null) {
+    core4.setFailed(workflowRunsFailure);
     return;
   }
   const pollStartedAt = Date.now();
@@ -25691,14 +25723,16 @@ var runPublic = async (deps, inputs) => {
   }
 };
 
-// src/index.ts
+// src/events.ts
 var SUPPORTED_EVENTS = ["pull_request", "pull_request_review"];
+var isSupportedEvent = (eventName) => SUPPORTED_EVENTS.includes(eventName);
+var unsupportedEventMessage = (eventName) => `automerge-gate only handles pull_request / pull_request_review events; got "${eventName}". Remove this event from the workflow's \`on:\` triggers.`;
+
+// src/index.ts
 var buildContext = () => {
   const ctx = github.context;
-  if (!SUPPORTED_EVENTS.includes(ctx.eventName)) {
-    core5.warning(
-      `automerge-gate only handles pull_request / pull_request_review events; got "${ctx.eventName}". Skipping.`
-    );
+  if (!isSupportedEvent(ctx.eventName)) {
+    core5.setFailed(unsupportedEventMessage(ctx.eventName));
     return null;
   }
   const action = ctx.payload.action ?? "";

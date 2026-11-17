@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fetchAllCheckRuns, withRetry, type OctokitLike } from '../src/api.js'
+import {
+  fetchAllCheckRuns,
+  isRateLimitError,
+  withRetry,
+  type OctokitLike
+} from '../src/api.js'
 
 describe('fetchAllCheckRuns', () => {
   const paginateRuns = async (fn: unknown, params: unknown) => {
@@ -178,5 +183,54 @@ describe('withRetry', () => {
       { status: 503 }
     )
     expect(fn).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('isRateLimitError', () => {
+  it('429 is a rate limit', () => {
+    expect(isRateLimitError({ status: 429 })).toBe(true)
+  })
+
+  it('403 with x-ratelimit-remaining: 0 is a rate limit', () => {
+    expect(
+      isRateLimitError({
+        status: 403,
+        response: { headers: { 'x-ratelimit-remaining': '0' } }
+      })
+    ).toBe(true)
+  })
+
+  it('403 with retry-after is a rate limit', () => {
+    expect(
+      isRateLimitError({
+        status: 403,
+        response: { headers: { 'retry-after': '60' } }
+      })
+    ).toBe(true)
+  })
+
+  it('403 whose message mentions a rate limit is a rate limit', () => {
+    expect(
+      isRateLimitError({
+        status: 403,
+        message: 'You have exceeded a secondary rate limit.'
+      })
+    ).toBe(true)
+  })
+
+  it('403 for a missing permission is not a rate limit', () => {
+    expect(
+      isRateLimitError({
+        status: 403,
+        message: 'Resource not accessible by integration',
+        response: { headers: { 'x-ratelimit-remaining': '4999' } }
+      })
+    ).toBe(false)
+  })
+
+  it('other statuses are not rate limits', () => {
+    expect(isRateLimitError({ status: 404 })).toBe(false)
+    expect(isRateLimitError({ status: 500 })).toBe(false)
+    expect(isRateLimitError(new Error('network'))).toBe(false)
   })
 })

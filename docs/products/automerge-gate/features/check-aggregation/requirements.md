@@ -104,6 +104,12 @@ Scenario: When reading the checks fails during polling, the gate retries on the 
 - When: That poll fails.
 - Then: The job log shows a warning with the error, and the gate polls again after the poll interval.
 
+Scenario: When GitHub's rate limit is reached before polling starts, the job fails with a rate limit message
+
+- Given: The token has `actions: read`, and GitHub refuses the request for the head commit's workflow runs because the rate limit is reached.
+- When: The gate is about to start polling.
+- Then: The job fails with a message that says the GitHub API rate limit was reached and does not mention `actions: read`, and no poll happens.
+
 Scenario: When `poll-interval-seconds` is not a positive integer, the job fails
 
 - Given: The workflow passes `poll-interval-seconds: '0'`.
@@ -194,7 +200,12 @@ When reading from GitHub fails during a poll, the gate logs a warning and tries 
 ##### Workflow runs cannot be listed
 
 Before the first poll the gate checks that it can list the workflow runs of the head commit.
-When GitHub refuses that request, the job fails with a message that names the `actions: read` permission, and polling does not start.
+When GitHub refuses that request because of a rate limit, the job fails with a message that says the rate limit was reached, and polling does not start.
+When GitHub refuses it for any other reason, the job fails with a message that names the `actions: read` permission, and polling does not start.
+
+##### A rate limit is reached during polling
+
+A poll that is refused because of a rate limit is a failed poll: the warning carries the rate limit message, and the gate tries again on the next poll.
 
 ### Action outputs
 
@@ -204,13 +215,13 @@ When GitHub refuses that request, the job fails with a message that names the `a
 
 | Output | Meaning |
 | --- | --- |
-| `state` | The aggregated verdict, `success` or `failure` |
+| `state` | The aggregated verdict, `success` or `failure`. `skipped` when private mode skips |
 | `total-checks` | Number of check runs read on the last poll, before any exclusion |
 | `evaluated-checks` | Number of evaluated checks on the last poll |
 | `completed-checks` | Number of evaluated checks that had completed on the last poll |
 | `polled-iterations` | Number of polls |
 
-No output is set when the run ends without polling to a verdict.
+When private mode skips, `state` is `skipped` and the other outputs are `0`, as described in [Gate modes](../gate-modes/requirements.md). No output is set when the job fails before a verdict or is ended by its timeout.
 
 ## Data requirements
 
@@ -240,5 +251,4 @@ The token needs `checks: read` and `actions: read`. Aggregation writes nothing.
 
 ## Open questions
 
-- **Unconfirmed: the `skipped` value of the `state` output.** Recorded in [Gate modes](../gate-modes/requirements.md#open-questions).
-- **Unconfirmed: the error shown when listing workflow runs is refused for another reason.** Any refusal of that request before polling, including a rate limit, is reported as a missing `actions: read` permission. Whether other refusals should be told apart is undecided; this document describes the current behavior. azu decides.
+- **Unconfirmed: ending the job when a rate limit is reached during polling.** A rate limit before polling fails the job; one during polling is retried on the next poll. Whether polling should also end with the rate limit error is undecided. azu decides.

@@ -70,8 +70,12 @@ A poll that throws is treated as a failed poll: the runner has already logged a 
 The job's `timeout-minutes` ends a loop that never reaches a verdict.
 
 Before entering the loop, each runner makes one request for the workflow runs.
-If GitHub answers it with a client error, the runner fails the job with the message about `actions: read`.
+If GitHub refuses it because of a rate limit, the runner fails the job with a rate limit message that includes GitHub's own text.
+If GitHub answers it with any other client error, the runner fails the job with the message about `actions: read`.
 Without this check, a missing permission would be retried as a failed poll until the job timed out.
+
+A refusal is read as a rate limit when its status is 429, or when its status is 403 and the response has `x-ratelimit-remaining: 0`, has a `retry-after` header, or says "rate limit" in its message ([Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)).
+A missing permission is also a 403, which is why the status alone cannot tell the two apart.
 
 ### Why polling has no timeout input
 
@@ -138,7 +142,7 @@ It also calls back after each poll with the poll number, the state, and the coun
 Lists are requested 100 per page and followed to the end.
 Each request is retried up to three times with exponential backoff, starting at 500 ms, on server errors and on errors without a status code.
 Client errors are not retried.
-A client error on the workflow-run list is reported as "cannot list" and turned into the `actions: read` message; a client error on the check-run list fails that poll.
+A rate limit on the workflow-run list is raised as its own error. Any other client error on that list is reported as "cannot list" and turned into the `actions: read` message. A client error on the check-run list fails that poll.
 
 Check runs could also be read per check suite, with one request to list the suites and one per suite.
 The single request per commit is used so that the number of requests per poll does not grow with the number of check suites; the per-suite form runs into rate limits.
